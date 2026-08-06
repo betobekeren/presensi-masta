@@ -492,7 +492,7 @@ function confirmDialog(title, msg, onYes){
 async function seedIfEmpty(){
   if(DB.users.length===0){
     DB.users.push({
-      id:uid(), role:'admin', username:'admin', password:'admin123', nama:'Administrator',
+      id:uid(), role:'admin', username:'admin', password:'masta2026', nama:'Administrator',
       nim:'', prodiId:'', createdAt:Date.now()
     });
     await saveDB('users');
