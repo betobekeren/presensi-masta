@@ -635,7 +635,6 @@ function loginFormHTML(){
     <button class="btn btn-primary btn-block" type="submit">Masuk</button>
   </form>
   <p class="auth-switch">Belum punya akun Maba? <button data-go="register">Daftar di sini</button></p>
-  <p class="field-hint" style="margin-top:18px;text-align:center;
 }
 function registerFormHTML(){
   const opts = DB.prodi.map(p=>`<option value="${p.id}">${esc(p.nama)}</option>`).join('');
