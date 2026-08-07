@@ -566,18 +566,18 @@ async function tryRestoreSession(){
   const sess = sessionGet();
   if(sess && sess.userId){
     const u = DB.users.find(x=>x.id===sess.userId);
-    if(u){ STATE.user = u; STATE.route = routeForRole(u.role); }
+    if(u && u.role!=='coach'){ STATE.user = u; STATE.route = routeForRole(u.role); }
   }
 }
 function routeForRole(role){
   if(role==='admin') return 'dashboard';
-  if(role==='coach') return 'coachhome';
   return 'beranda';
 }
 
 async function doLogin(username, password){
   const u = DB.users.find(x=>x.username.toLowerCase()===username.trim().toLowerCase() && x.password===password);
   if(!u){ toast('Username atau password salah.','error'); return; }
+  if(u.role==='coach'){ toast('Coach tidak memiliki login sendiri. Silakan gunakan akun Admin untuk absensi.','error'); return; }
   if(u.active===false){ toast('Akun ini telah dinonaktifkan. Hubungi Admin.','error'); return; }
   STATE.user = u;
   STATE.route = routeForRole(u.role);
@@ -661,9 +661,6 @@ function render(){
   if(STATE.user.role==='admin'){
     app.innerHTML = renderAdminShell();
     bindAdminEvents();
-  }else if(STATE.user.role==='coach'){
-    app.innerHTML = renderCoachShell();
-    bindCoachEvents();
   }else{
     app.innerHTML = renderMabaShell();
     bindMabaEvents();
@@ -1096,22 +1093,22 @@ function openKelompokForm(existing){
    ============================================================ */
 function viewCoach(){
   return `
-  <div class="page-head"><div><h2>Coach</h2><p>Kelola akun dan penugasan Coach pendamping Masta.</p></div>
+  <div class="page-head"><div><h2>Coach</h2><p>Kelola daftar Coach pendamping Masta. Coach tidak memiliki login sendiri — semua absensi dilakukan lewat akun Admin.</p></div>
     <button class="btn btn-brass" id="btn-add-coach">${ICON.plus} Tambah Coach</button></div>
   <div class="table-card">
-    <div class="table-toolbar"><input type="search" id="coach-search" placeholder="Cari nama atau username Coach..." style="min-width:260px;"></div>
+    <div class="table-toolbar"><input type="search" id="coach-search" placeholder="Cari nama Coach..." style="min-width:260px;"></div>
     <div id="coach-table-wrap"></div>
   </div>`;
 }
 function coachTableHTML(filter){
   filter = (filter||'').toLowerCase();
-  const rows = DB.users.filter(u=>u.role==='coach' && (u.nama.toLowerCase().includes(filter) || u.username.toLowerCase().includes(filter)));
+  const rows = DB.users.filter(u=>u.role==='coach' && u.nama.toLowerCase().includes(filter));
   if(!rows.length) return `<div class="table-empty">Belum ada data Coach.</div>`;
-  return `<table><thead><tr><th>Nama Coach</th><th>Prodi</th><th>Username</th><th>Bimbingan</th><th>Status</th><th style="text-align:right;">Aksi</th></tr></thead><tbody>
+  return `<table><thead><tr><th>Nama Coach</th><th>Prodi</th><th>Bimbingan</th><th>Status</th><th style="text-align:right;">Aksi</th></tr></thead><tbody>
     ${rows.map(c=>{
       const count = DB.users.filter(u=>u.role==='maba'&&u.coachId===c.id).length;
       const active = c.active!==false;
-      return `<tr><td><b>${esc(c.nama)}</b></td><td>${esc(prodiName(c.prodiId))}</td><td>${esc(c.username)}</td><td>${count} Masta</td>
+      return `<tr><td><b>${esc(c.nama)}</b></td><td>${esc(prodiName(c.prodiId))}</td><td>${count} Masta</td>
       <td><span class="badge ${active?'badge-success':'badge-muted'}">${active?'Aktif':'Nonaktif'}</span></td>
       <td><div class="row-actions" style="justify-content:flex-end;">
         <button class="icon-btn" title="${active?'Nonaktifkan':'Aktifkan'}" data-toggle-coach="${c.id}">${active?ICON.x:ICON.check}</button>
@@ -1151,25 +1148,20 @@ function openCoachForm(existing){
       <form id="coach-form">
         <div class="field"><label>Nama Coach</label><input name="nama" required value="${existing?esc(existing.nama):''}" placeholder="Nama lengkap Coach"></div>
         <div class="field"><label>Prodi yang Ditangani</label><select name="prodiId"><option value="">Semua Prodi</option>${opts}</select></div>
-        <div class="field-row">
-          <div class="field"><label>Username</label><input name="username" required value="${existing?esc(existing.username):''}" placeholder="Username login"></div>
-          <div class="field"><label>Password</label><input type="password" name="password" placeholder="${existing?'Kosongkan jika tidak diubah':'Min. 4 karakter'}" minlength="4"></div>
-        </div>
       </form>
     </div>
     <div class="modal-foot"><button class="btn btn-outline" onclick="closeModal()">Batal</button><button class="btn btn-primary" id="coach-save">Simpan</button></div>`);
   byId('coach-save').onclick = async ()=>{
     const f = new FormData(byId('coach-form'));
-    const nama = f.get('nama').trim(); const username = f.get('username').trim(); const password = f.get('password');
-    if(!nama || !username){ toast('Nama dan username wajib diisi.','error'); return; }
-    const dup = DB.users.find(u=>u.username.toLowerCase()===username.toLowerCase() && (!existing || u.id!==existing.id));
-    if(dup){ toast('Username sudah digunakan.','error'); return; }
+    const nama = f.get('nama').trim();
+    if(!nama){ toast('Nama wajib diisi.','error'); return; }
     if(existing){
-      existing.nama=nama; existing.username=username; existing.prodiId=f.get('prodiId');
-      if(password) existing.password=password;
+      existing.nama=nama; existing.prodiId=f.get('prodiId');
     }else{
-      if(!password){ toast('Password wajib diisi untuk Coach baru.','error'); return; }
-      DB.users.push({id:uid(), role:'coach', username, password, nama, nim:'', noHp:'', prodiId:f.get('prodiId'), kelompokId:'', coachId:'', active:true, createdAt:Date.now()});
+      const usedUsernames = new Set(DB.users.map(u=>u.username.toLowerCase()));
+      let base = slugUsername(nama), username = base, n = 1;
+      while(usedUsernames.has(username)){ username = base + (n++); }
+      DB.users.push({id:uid(), role:'coach', username, password:uid(), nama, nim:'', noHp:'', prodiId:f.get('prodiId'), kelompokId:'', coachId:'', active:true, createdAt:Date.now()});
     }
     await saveDB('users'); closeModal(); toast('Data Coach tersimpan.','success'); refreshAdminContent();
   };
@@ -1249,6 +1241,7 @@ function bindMastaRowEvents(){
 }
 function openMastaForm(existing){
   const opts = DB.prodi.map(p=>`<option value="${p.id}" ${existing&&existing.prodiId===p.id?'selected':''}>${esc(p.nama)}</option>`).join('');
+  const kelOpts = DB.kelompok.map(k=>`<option value="${k.id}" ${existing&&existing.kelompokId===k.id?'selected':''}>${esc(k.nama)} — ${esc(prodiName(k.prodiId))}</option>`).join('');
   openModal(`
     <div class="modal-head"><h3>${existing?'Edit':'Tambah'} Masta</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
     <div class="modal-body">
@@ -1258,6 +1251,7 @@ function openMastaForm(existing){
           <div class="field"><label>Nama Masta</label><input name="nama" required value="${existing?esc(existing.nama):''}"></div>
         </div>
         <div class="field"><label>Prodi/Kelompok</label><select name="prodiId" required>${DB.prodi.length?'':'<option value="">Belum ada Prodi/Kelompok</option>'}${opts}</select></div>
+        <div class="field"><label>Kelompok</label><select name="kelompokId"><option value="">${kelOpts.length?'Belum ditentukan':'Belum ada data Kelompok'}</option>${kelOpts}</select></div>
         <div class="field-row">
           <div class="field"><label>Username</label><input name="username" required value="${existing?esc(existing.username):''}"></div>
           <div class="field"><label>Password ${existing?'(kosongkan jika tidak diubah)':''}</label><input name="password" type="text" ${existing?'':'required'} placeholder="${existing?'••••••••':''}"></div>
@@ -1267,17 +1261,17 @@ function openMastaForm(existing){
     <div class="modal-foot"><button class="btn btn-outline" onclick="closeModal()">Batal</button><button class="btn btn-primary" id="masta-save">Simpan</button></div>`);
   byId('masta-save').onclick = async ()=>{
     const f = new FormData(byId('masta-form'));
-    const nim=f.get('nim').trim(), nama=f.get('nama').trim(), prodiId=f.get('prodiId'), username=f.get('username').trim(), password=f.get('password');
+    const nim=f.get('nim').trim(), nama=f.get('nama').trim(), prodiId=f.get('prodiId'), kelompokId=f.get('kelompokId')||'', username=f.get('username').trim(), password=f.get('password');
     if(!nim||!nama||!prodiId||!username){ toast('Lengkapi semua data wajib.','error'); return; }
     const dupUser = DB.users.find(u=>u.username.toLowerCase()===username.toLowerCase() && (!existing || u.id!==existing.id));
     if(dupUser){ toast('Username sudah digunakan.','error'); return; }
     const dupNim = DB.users.find(u=>u.role==='maba'&&u.nim===nim && (!existing || u.id!==existing.id));
     if(dupNim){ toast('NIM sudah terdaftar.','error'); return; }
     if(existing){
-      existing.nim=nim; existing.nama=nama; existing.prodiId=prodiId; existing.username=username;
+      existing.nim=nim; existing.nama=nama; existing.prodiId=prodiId; existing.kelompokId=kelompokId; existing.username=username;
       if(password) existing.password=password;
     }else{
-      DB.users.push({id:uid(), role:'maba', nim,nama,noHp:'',prodiId,kelompokId:'',coachId:'',active:true,username,password:password||'masta123', createdAt:Date.now()});
+      DB.users.push({id:uid(), role:'maba', nim,nama,noHp:'',prodiId,kelompokId,coachId:'',active:true,username,password:password||'masta123', createdAt:Date.now()});
     }
     await saveDB('users'); closeModal(); toast('Data Masta & QR Code otomatis dibuat.','success'); refreshAdminContent();
   };
@@ -1507,16 +1501,12 @@ function renderScanOverlay(ok, title, msg){
    IZIN & SAKIT
    ============================================================ */
 function izinSakitScopeCount(data){
-  if(STATE.user.role==='coach'){
-    const binaanIds = new Set(coachBinaan().map(b=>b.id));
-    return data.filter(d=>binaanIds.has(d.mastaId)).length;
-  }
   if(STATE.user.role==='admin') return data.length;
   return data.filter(d=>d.mastaId===STATE.user.id).length;
 }
 function viewIzinSakit(isAdmin, tab){
   tab = tab || 'izin';
-  const desc = STATE.user.role==='coach' ? 'Kelola pengajuan izin dan sakit Masta bimbingan Anda.' : (isAdmin?'Kelola pengajuan izin dan sakit seluruh Masta.':'Ajukan izin atau sakit Anda di sini.');
+  const desc = isAdmin?'Kelola pengajuan izin dan sakit seluruh Masta.':'Ajukan izin atau sakit Anda di sini.';
   return `
   <div class="page-head"><div><h2>Izin & Sakit</h2><p>${desc}</p></div>
     <button class="btn btn-brass" id="btn-add-izinsakit">${ICON.plus} Ajukan Baru</button></div>
@@ -1529,10 +1519,7 @@ function viewIzinSakit(isAdmin, tab){
 function izinSakitListHTML(isAdmin, tab){
   const data = tab==='izin' ? DB.izin : DB.sakit;
   let own;
-  if(STATE.user.role==='coach'){
-    const binaanIds = new Set(coachBinaan().map(b=>b.id));
-    own = data.filter(d=>binaanIds.has(d.mastaId));
-  }else if(isAdmin){
+  if(isAdmin){
     own = data;
   }else{
     own = data.filter(d=>d.mastaId===STATE.user.id);
@@ -1593,7 +1580,7 @@ function bindIzinSakitRowEvents(isAdmin, refresh){
   });
 }
 function openIzinSakitForm(isAdmin, defaultTab, onDone){
-  const mastaScope = STATE.user.role==='coach' ? coachBinaan() : DB.users.filter(u=>u.role==='maba');
+  const mastaScope = DB.users.filter(u=>u.role==='maba');
   const mastaOpts = isAdmin ? mastaScope.map(u=>`<option value="${u.id}">${esc(u.nama)} — ${esc(u.nim)}</option>`).join('') : '';
   openModal(`
     <div class="modal-head"><h3>Ajukan Izin / Sakit</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
@@ -1869,124 +1856,6 @@ function openBackupForm(){
 /* ============================================================
    MABA SHELL
    ============================================================ */
-/* ============================================================
-   COACH SHELL (dasar — dashboard lengkap menyusul)
-   ============================================================ */
-const COACH_NAV = [
-  {id:'coachhome', label:'Beranda', icon:ICON.home},
-  {id:'coachizinsakit', label:'Izin/Sakit', icon:ICON.medkit},
-];
-function coachBinaan(){ return DB.users.filter(u=>u.role==='maba' && u.coachId===STATE.user.id); }
-function coachTopbarTitle(){
-  if(STATE.route==='coachdetail') return 'Detail Masta';
-  if(STATE.route==='coachizinsakit') return 'Izin/Sakit Bimbingan';
-  return 'Beranda Coach';
-}
-function renderCoachShell(){
-  const u = STATE.user;
-  const activeNavId = STATE.route==='coachdetail' ? 'coachhome' : STATE.route;
-  const navHtml = COACH_NAV.map(n=>`
-    <div class="nav-item ${activeNavId===n.id?'active':''}" data-route="${n.id}">${n.icon}<span>${n.label}</span></div>
-  `).join('');
-  return `
-  <div id="sidebar-scrim" class="${STATE.sidebarOpen?'show':''}"></div>
-  <div class="app-shell">
-    <aside class="sidebar ${STATE.sidebarOpen?'open':''}">
-      <div class="brand"><img src="${LOGO_SRC}"><div class="bt">ABSENSI MASTA<small>Panel Coach</small></div></div>
-      <nav class="nav-group">${navHtml}</nav>
-      <div class="sidebar-foot">
-        <div class="user-chip"><div class="user-avatar">${initials(u.nama)}</div><div><div class="un">${esc(u.nama)}</div><div class="ur">Coach</div></div></div>
-        <button class="logout-btn" id="btn-logout">${ICON.logout} Keluar</button>
-      </div>
-    </aside>
-    <div class="main">
-      <div class="topbar">
-        <div style="display:flex;align-items:center;gap:10px;">
-          <button class="hamburger" id="btn-hamburger">☰</button>
-          <h1>${coachTopbarTitle()}</h1>
-        </div>
-        <div class="clock" id="topbar-clock"></div>
-      </div>
-      <div class="content" id="admin-content">${renderCoachContent()}</div>
-    </div>
-  </div>`;
-}
-function renderCoachContent(){
-  if(STATE.route==='coachdetail' && STATE.coachDetailId) return viewCoachMastaDetail(STATE.coachDetailId);
-  if(STATE.route==='coachizinsakit') return viewIzinSakit(true, STATE.izinSakitDefaultTab||'izin');
-  return viewCoachHome();
-}
-function viewCoachHome(){
-  const u = STATE.user;
-  const binaan = coachBinaan();
-  const today = todayStr();
-  const hadirIds = new Set(DB.att.filter(a=>a.tanggal===today && binaan.some(b=>b.id===a.mastaId)).map(a=>a.mastaId));
-  const izinTodayIds = new Set(DB.izin.filter(i=>i.tanggal===today).map(i=>i.mastaId));
-  const sakitTodayIds = new Set(DB.sakit.filter(s=>s.tanggal===today).map(s=>s.mastaId));
-  const izinSakitCount = binaan.filter(b=> izinTodayIds.has(b.id) || sakitTodayIds.has(b.id)).length;
-  const belumAbsen = binaan.filter(b=> !hadirIds.has(b.id) && !izinTodayIds.has(b.id) && !sakitTodayIds.has(b.id)).length;
-
-  const rows = binaan.map(b=>{
-    let statusBadge;
-    if(hadirIds.has(b.id)){
-      const sesiHari = DB.att.filter(a=>a.mastaId===b.id && a.tanggal===today).map(a=>sesiLabel(a.sesi));
-      statusBadge = `<span class="badge badge-success">Hadir · ${sesiHari.join(', ')}</span>`;
-    } else if(izinTodayIds.has(b.id)) statusBadge = `<span class="badge badge-warn">Izin</span>`;
-    else if(sakitTodayIds.has(b.id)) statusBadge = `<span class="badge badge-muted">Sakit</span>`;
-    else statusBadge = `<span class="badge badge-danger">Belum Absen</span>`;
-    return `<div class="list-row clickable" data-coach-detail="${b.id}">
-      <span><span class="avatar-sm">${initials(b.nama)}</span><b>${esc(b.nama)}</b> · ${esc(b.nim)} · ${esc(kelompokName(b.kelompokId))}</span>
-      ${statusBadge}
-    </div>`;
-  }).join('') || `<div class="list-row" style="color:var(--muted);">Belum ada Masta yang memilih Anda sebagai Coach.</div>`;
-
-  return `
-  <div class="page-head"><div><h2>Selamat datang, ${esc(u.nama)}</h2><p>Ringkasan bimbingan Anda — ${fmtDateHuman(today)}.</p></div></div>
-  <div class="stat-grid">
-    <div class="stat-card hero"><div class="ic" style="background:rgba(255,255,255,.12);color:#fff;">${ICON.users}</div><div class="n">${binaan.length}</div><div class="l">Total Bimbingan</div></div>
-    <div class="stat-card"><div class="ic" style="background:var(--success-bg);color:var(--success);">${ICON.check}</div><div class="n">${hadirIds.size}</div><div class="l">Hadir Hari Ini</div></div>
-    <div class="stat-card"><div class="ic" style="background:var(--warn-bg);color:var(--warn);">${ICON.medkit}</div><div class="n">${izinSakitCount}</div><div class="l">Izin/Sakit Hari Ini</div></div>
-    <div class="stat-card"><div class="ic" style="background:var(--danger-bg);color:var(--danger);">${ICON.x}</div><div class="n">${belumAbsen}</div><div class="l">Belum Absen</div></div>
-  </div>
-  <div class="section-title" style="margin-top:22px;">Daftar Masta Bimbingan</div>
-  <div class="panel">${rows}</div>`;
-}
-function viewCoachMastaDetail(id){
-  const m = getMasta(id);
-  if(!m || m.coachId !== STATE.user.id){
-    return `<button class="btn btn-outline btn-sm no-print" data-back-coach="1" style="margin-bottom:16px;">← Kembali</button>
-    <div class="empty-state">${ICON.user}<p>Masta ini tidak ditemukan atau bukan bimbingan Anda.</p></div>`;
-  }
-  return `<button class="btn btn-outline btn-sm no-print" data-back-coach="1" style="margin-bottom:16px;">← Kembali ke Daftar Bimbingan</button>
-  ${mastaDetailBodyHTML(m)}`;
-}
-function bindCoachEvents(){
-  qsa('.nav-item[data-route]').forEach(el=>{
-    el.onclick = ()=>{ STATE.route = el.dataset.route; STATE.coachDetailId=null; STATE.sidebarOpen=false; render(); };
-  });
-  const hb = byId('btn-hamburger'); if(hb) hb.onclick = ()=>{ STATE.sidebarOpen=!STATE.sidebarOpen; render(); };
-  const scrim = byId('sidebar-scrim'); if(scrim) scrim.onclick = ()=>{ STATE.sidebarOpen=false; render(); };
-  byId('btn-logout').onclick = ()=> confirmDialog('Keluar Akun','Anda yakin ingin keluar dari Absensi Masta?', doLogout);
-  startClock();
-  bindCoachContentEvents();
-}
-function bindCoachContentEvents(){
-  if(STATE.route==='coachdetail'){
-    qsa('[data-back-coach]').forEach(el=> el.onclick=()=>{ STATE.route='coachhome'; STATE.coachDetailId=null; render(); });
-    return;
-  }
-  if(STATE.route==='coachizinsakit'){
-    bindIzinSakitEvents(true);
-    return;
-  }
-  qsa('[data-coach-detail]').forEach(el=> el.onclick=()=>{ STATE.coachDetailId = el.dataset.coachDetail; STATE.route='coachdetail'; render(); });
-}
-function refreshCoachContent(){
-  const el = byId('admin-content');
-  if(el){ el.innerHTML = renderCoachContent(); bindCoachContentEvents(); }
-  const h1 = qs('.topbar h1'); if(h1) h1.textContent = coachTopbarTitle();
-}
-
 const MABA_NAV = [
   {id:'beranda', label:'Beranda', icon:ICON.home},
   {id:'riwayat', label:'Riwayat', icon:ICON.history},
@@ -2100,8 +1969,6 @@ function viewMabaRiwayat(){
 }
 function viewMabaProfil(){
   const u = STATE.user;
-  const kelompokOpts = DB.kelompok.filter(k=>k.prodiId===u.prodiId)
-    .map(k=>`<option value="${k.id}" ${u.kelompokId===k.id?'selected':''}>${esc(k.nama)}</option>`).join('');
   const coachOpts = DB.users.filter(c=>c.role==='coach' && c.active!==false && (!c.prodiId || c.prodiId===u.prodiId))
     .map(c=>`<option value="${c.id}" ${u.coachId===c.id?'selected':''}>${esc(c.nama)}</option>`).join('');
   return `
@@ -2114,37 +1981,33 @@ function viewMabaProfil(){
     <div class="field"><label>NIM</label><input value="${esc(u.nim)}" disabled></div>
     <div class="field"><label>Nomor HP</label><input value="${esc(u.noHp||'—')}" disabled></div>
     <div class="field"><label>Prodi</label><input value="${esc(prodiName(u.prodiId))}" disabled></div>
+    <div class="field"><label>Kelompok</label><input value="${esc(kelompokName(u.kelompokId))}" disabled></div>
     <form id="username-form">
       <div class="field"><label>Username</label><input type="text" name="username" value="${esc(u.username)}" required minlength="3" autocomplete="off"></div>
       <button class="btn btn-primary btn-block" type="submit">Simpan Username</button>
     </form>
     <button class="btn btn-outline btn-block" id="btn-change-pass" style="margin-top:10px;">Ubah Password</button>
   </div>
-  <div class="section-title" style="margin-top:22px;">Kelompok &amp; Coach</div>
+  <div class="section-title" style="margin-top:22px;">Coach</div>
   <div class="panel">
-    <p class="field-hint" style="margin-bottom:14px;">Kelompok saat ini: <b>${esc(kelompokName(u.kelompokId))}</b> · Coach saat ini: <b>${esc(coachName(u.coachId))}</b></p>
-    <p class="field-hint" style="margin-bottom:14px;">Pilih Kelompok dan Coach pembimbing kamu. Bisa diubah kapan saja.</p>
-    <form id="kelompok-coach-form">
-      <div class="field"><label>Kelompok</label><select name="kelompokId">
-        <option value="">${kelompokOpts.length? 'Pilih Kelompok' : 'Belum ada Kelompok untuk Prodi ini'}</option>${kelompokOpts}
-      </select></div>
+    <p class="field-hint" style="margin-bottom:14px;">Kelompok ditentukan oleh Admin. Kamu bisa memilih Coach pembimbingmu sendiri di bawah ini.</p>
+    <form id="coach-select-form">
       <div class="field"><label>Coach</label><select name="coachId">
         <option value="">${coachOpts.length? 'Pilih Coach' : 'Belum ada Coach untuk Prodi ini'}</option>${coachOpts}
       </select></div>
-      <button class="btn btn-primary btn-block" type="submit">Simpan Kelompok &amp; Coach</button>
+      <button class="btn btn-primary btn-block" type="submit">Simpan Coach</button>
     </form>
   </div>`;
 }
 function bindMabaProfilEvents(){
-  const f = byId('kelompok-coach-form');
+  const f = byId('coach-select-form');
   if(f){
     f.onsubmit = async e=>{
       e.preventDefault();
       const fd = new FormData(f);
-      STATE.user.kelompokId = fd.get('kelompokId') || '';
       STATE.user.coachId = fd.get('coachId') || '';
       await saveDB('users');
-      toast('Kelompok & Coach berhasil disimpan.','success');
+      toast('Coach berhasil disimpan.','success');
       refreshMabaContent();
     };
   }
@@ -2199,7 +2062,6 @@ function isSafeToAutoRefresh(){
 function refreshCurrentContent(){
   if(!STATE.user) return;
   if(STATE.user.role==='admin') refreshAdminContent();
-  else if(STATE.user.role==='coach') refreshCoachContent();
   else refreshMabaContent();
 }
 let autoRefreshTimer = null;
