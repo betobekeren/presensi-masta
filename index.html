@@ -2,6 +2,9 @@
 <html lang="id">
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Absensi Masta</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -359,7 +362,13 @@ tbody tr:hover{background:#FBFAF6;}
   .no-print{display:none !important;}
   .print-only{display:block !important;}
   body{background:#fff;}
+  .sidebar,.topbar,.maba-top,.maba-bottom-nav,.hamburger{display:none !important;}
+  .main{margin:0 !important;}
+  .content{padding:0 !important;}
+  .app-shell{display:block !important;}
 }
+.list-row.clickable{cursor:pointer;transition:background .12s;}
+.list-row.clickable:hover{background:#F7F6F1;}
 .detail-card{display:flex;gap:14px;padding:16px;border:1px solid var(--line);border-radius:14px;margin-bottom:10px;align-items:center;}
 .chk-row{display:flex;align-items:center;gap:8px;font-size:13.5px;}
 </style>
@@ -382,7 +391,10 @@ const K = {
 };
 
 let DB = { users:[], prodi:[], kelompok:[], att:[], izin:[], sakit:[], backup:[] };
-let STATE = { user:null, route:'dashboard', sidebarOpen:false, scanSession:null };
+let STATE = { user:null, route:'dashboard', sidebarOpen:false, scanSession:null,
+  dashKelompok:'', dashCoach:'', izinSakitDefaultTab:null,
+  mastaFilterKelompok:'', mastaFilterCoach:'', coachDetailId:null,
+  lapKelompok:'', lapCoach:'' };
 
 /* ---------- storage helpers (Google Sheets via Apps Script) ---------- */
 function sheetsReady(){
@@ -469,6 +481,10 @@ function qsa(sel,root){ return Array.from((root||document).querySelectorAll(sel)
 function getProdi(id){ return DB.prodi.find(p=>p.id===id); }
 function getMasta(id){ return DB.users.find(u=>u.id===id && u.role==='maba'); }
 function prodiName(id){ const p=getProdi(id); return p? p.nama : '—'; }
+function getKelompok(id){ return DB.kelompok.find(k=>k.id===id); }
+function kelompokName(id){ const k=getKelompok(id); return k? k.nama : '—'; }
+function getCoach(id){ return DB.users.find(u=>u.id===id && u.role==='coach'); }
+function coachName(id){ const c=getCoach(id); return c? c.nama : '—'; }
 
 /* ---------- toast ---------- */
 function toast(msg, type, title){
@@ -792,7 +808,7 @@ function renderAdminContent(){
     case 'coach': return viewCoach();
     case 'masta': return viewMasta();
     case 'absensi': return viewAbsensi();
-    case 'izinsakit': return viewIzinSakit(true);
+    case 'izinsakit': return viewIzinSakit(true, STATE.izinSakitDefaultTab||'izin');
     case 'laporan': return viewLaporan();
     case 'akun': return viewAkun();
     default: return viewDashboard();
@@ -810,7 +826,7 @@ function bindAdminEvents(){
 }
 function bindContentEvents(){
   switch(STATE.route){
-    case 'dashboard': drawDashboardChart(); break;
+    case 'dashboard': bindDashboardEvents(); break;
     case 'prodi': bindProdiEvents(); break;
     case 'kelompok': bindKelompokEvents(); break;
     case 'coach': bindCoachMgmtEvents(); break;
@@ -846,46 +862,60 @@ function startClock(){
 /* ============================================================
    DASHBOARD
    ============================================================ */
+function dashboardMastaScope(){
+  return DB.users.filter(u=>u.role==='maba'
+    && (!STATE.dashKelompok || u.kelompokId===STATE.dashKelompok)
+    && (!STATE.dashCoach || u.coachId===STATE.dashCoach));
+}
 function viewDashboard(){
-  const totalMasta = DB.users.filter(u=>u.role==='maba').length;
+  const scope = dashboardMastaScope();
+  const scopeIds = new Set(scope.map(m=>m.id));
+  const totalMasta = scope.length;
   const today = todayStr();
-  const hadirToday = new Set(DB.att.filter(a=>a.tanggal===today).map(a=>a.mastaId)).size;
-  const izinToday = DB.izin.filter(i=>i.tanggal===today).length;
-  const sakitToday = DB.sakit.filter(s=>s.tanggal===today).length;
-  const tidakHadir = Math.max(totalMasta - hadirToday - izinToday - sakitToday, 0);
+  const hadirToday = new Set(DB.att.filter(a=>a.tanggal===today && scopeIds.has(a.mastaId)).map(a=>a.mastaId)).size;
+  const izinToday = DB.izin.filter(i=>i.tanggal===today && scopeIds.has(i.mastaId)).length;
+  const sakitToday = DB.sakit.filter(s=>s.tanggal===today && scopeIds.has(s.mastaId)).length;
   const persen = totalMasta? Math.round((hadirToday/totalMasta)*100) : 0;
 
-  const recentAtt = [...DB.att].sort((a,b)=>b.jamTs-a.jamTs).slice(0,6);
+  const recentAtt = [...DB.att].filter(a=>scopeIds.has(a.mastaId)).sort((a,b)=>b.jamTs-a.jamTs).slice(0,6);
   const recentRows = recentAtt.map(a=>{
     const m = getMasta(a.mastaId);
     return `<div class="list-row"><span><b>${esc(m?m.nama:'—')}</b> · ${esc(sesiLabel(a.sesi))}</span><span class="badge badge-success">${a.jam}</span></div>`;
   }).join('') || `<div class="list-row" style="color:var(--muted);">Belum ada aktivitas absensi.</div>`;
 
   const pendingReq = [
-    ...DB.izin.filter(i=>i.status==='pending').map(i=>({...i,jenis:'Izin'})),
-    ...DB.sakit.filter(i=>i.status==='pending').map(i=>({...i,jenis:'Sakit'}))
+    ...DB.izin.filter(i=>i.status==='pending' && scopeIds.has(i.mastaId)).map(i=>({...i,jenis:'Izin'})),
+    ...DB.sakit.filter(i=>i.status==='pending' && scopeIds.has(i.mastaId)).map(i=>({...i,jenis:'Sakit'}))
   ].sort((a,b)=>b.createdAt-a.createdAt).slice(0,6);
   const pendingRows = pendingReq.map(r=>{
     const m = getMasta(r.mastaId);
     return `<div class="list-row"><span><b>${esc(m?m.nama:'—')}</b> · ${r.jenis}</span><span class="badge badge-warn">Menunggu</span></div>`;
   }).join('') || `<div class="list-row" style="color:var(--muted);">Tidak ada pengajuan tertunda.</div>`;
 
+  const kelOpts = DB.kelompok.map(k=>`<option value="${k.id}" ${STATE.dashKelompok===k.id?'selected':''}>${esc(k.nama)}</option>`).join('');
+  const coachOpts = DB.users.filter(u=>u.role==='coach').map(c=>`<option value="${c.id}" ${STATE.dashCoach===c.id?'selected':''}>${esc(c.nama)}</option>`).join('');
+
   return `
   <div class="page-head"><div><h2>Ringkasan Hari Ini</h2><p>${fmtDateHuman(today)}</p></div></div>
+  <div class="table-toolbar no-print" style="margin-bottom:16px;">
+    <select id="dash-filter-kelompok"><option value="">Semua Kelompok</option>${kelOpts}</select>
+    <select id="dash-filter-coach"><option value="">Semua Coach</option>${coachOpts}</select>
+    ${(STATE.dashKelompok||STATE.dashCoach)? `<button class="btn btn-outline btn-sm" id="dash-filter-reset">Reset Filter</button>`:''}
+  </div>
   <div class="stat-grid">
-    <div class="stat-card hero">
+    <div class="stat-card hero" data-dash-card="masta" style="cursor:pointer;">
       <div class="ic" style="background:rgba(255,255,255,.12);color:#fff;">${ICON.users}</div>
       <div class="n">${totalMasta}</div><div class="l">Total Masta Terdaftar</div>
     </div>
-    <div class="stat-card">
+    <div class="stat-card" data-dash-card="hadir" style="cursor:pointer;">
       <div class="ic" style="background:var(--success-bg);color:var(--success);">${ICON.check}</div>
       <div class="n">${hadirToday}</div><div class="l">Hadir Hari Ini (${persen}%)</div>
     </div>
-    <div class="stat-card">
+    <div class="stat-card" data-dash-card="izin" style="cursor:pointer;">
       <div class="ic" style="background:var(--warn-bg);color:var(--warn);">${ICON.note}</div>
       <div class="n">${izinToday}</div><div class="l">Pengajuan Izin</div>
     </div>
-    <div class="stat-card">
+    <div class="stat-card" data-dash-card="sakit" style="cursor:pointer;">
       <div class="ic" style="background:var(--danger-bg);color:var(--danger);">${ICON.medkit}</div>
       <div class="n">${sakitToday}</div><div class="l">Pengajuan Sakit</div>
     </div>
@@ -904,17 +934,31 @@ function viewDashboard(){
 function sesiLabel(s){ return {pagi:'Pagi',siang:'Siang',sore:'Sore'}[s] || s; }
 function drawDashboardChart(){
   const canvas = byId('attChart'); if(!canvas || typeof Chart==='undefined') return;
+  const scopeIds = new Set(dashboardMastaScope().map(m=>m.id));
   const labels=[]; const data=[];
   for(let i=6;i>=0;i--){
     const d = new Date(); d.setDate(d.getDate()-i);
     const ds = d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
     labels.push(d.toLocaleDateString('id-ID',{weekday:'short'}));
-    data.push(new Set(DB.att.filter(a=>a.tanggal===ds).map(a=>a.mastaId)).size);
+    data.push(new Set(DB.att.filter(a=>a.tanggal===ds && scopeIds.has(a.mastaId)).map(a=>a.mastaId)).size);
   }
   new Chart(canvas.getContext('2d'), {
     type:'bar',
     data:{ labels, datasets:[{ label:'Masta Hadir', data, backgroundColor:'#B6852E', borderRadius:6, maxBarThickness:36 }]},
     options:{ responsive:true, plugins:{legend:{display:false}}, scales:{ y:{beginAtZero:true, ticks:{precision:0}, grid:{color:'#F0EFE9'}}, x:{grid:{display:false}} } }
+  });
+}
+function bindDashboardEvents(){
+  drawDashboardChart();
+  const kf = byId('dash-filter-kelompok'); if(kf) kf.onchange = e=>{ STATE.dashKelompok = e.target.value; refreshAdminContent(); };
+  const cf = byId('dash-filter-coach'); if(cf) cf.onchange = e=>{ STATE.dashCoach = e.target.value; refreshAdminContent(); };
+  const rb = byId('dash-filter-reset'); if(rb) rb.onclick = ()=>{ STATE.dashKelompok=''; STATE.dashCoach=''; refreshAdminContent(); };
+  qsa('[data-dash-card]').forEach(el=> el.onclick=()=>{
+    const card = el.dataset.dashCard;
+    if(card==='masta'){ STATE.mastaFilterKelompok=STATE.dashKelompok; STATE.mastaFilterCoach=STATE.dashCoach; STATE.route='masta'; render(); }
+    else if(card==='hadir'){ STATE.route='laporan'; render(); }
+    else if(card==='izin'){ STATE.izinSakitDefaultTab='izin'; STATE.route='izinsakit'; render(); }
+    else if(card==='sakit'){ STATE.izinSakitDefaultTab='sakit'; STATE.route='izinsakit'; render(); }
   });
 }
 
@@ -1136,30 +1180,39 @@ function openCoachForm(existing){
    ============================================================ */
 function viewMasta(){
   const opts = DB.prodi.map(p=>`<option value="${p.id}">${esc(p.nama)}</option>`).join('');
+  const kelOpts = DB.kelompok.map(k=>`<option value="${k.id}">${esc(k.nama)}</option>`).join('');
+  const coachOpts = DB.users.filter(u=>u.role==='coach').map(c=>`<option value="${c.id}">${esc(c.nama)}</option>`).join('');
   return `
   <div class="page-head"><div><h2>Data Masta</h2><p>Kelola akun Masta. QR Code &amp; Barcode dibuat otomatis saat data disimpan.</p></div>
     <button class="btn btn-brass" id="btn-add-masta">${ICON.plus} Tambah Masta</button></div>
   <div class="table-card">
     <div class="table-toolbar">
       <input type="search" id="masta-search" placeholder="Cari nama atau NIM..." style="min-width:220px;">
-      <select id="masta-filter-prodi"><option value="">Semua Prodi/Kelompok</option>${opts}</select>
+      <select id="masta-filter-prodi"><option value="">Semua Prodi</option>${opts}</select>
+      <select id="masta-filter-kelompok"><option value="">Semua Kelompok</option>${kelOpts}</select>
+      <select id="masta-filter-coach"><option value="">Semua Coach</option>${coachOpts}</select>
       <div class="spacer"></div>
     </div>
     <div id="masta-table-wrap"></div>
   </div>`;
 }
-function mastaTableHTML(filter, prodiId){
+function mastaTableHTML(filter, prodiId, kelompokId, coachId){
   filter=(filter||'').toLowerCase();
   let rows = DB.users.filter(u=>u.role==='maba' && (u.nama.toLowerCase().includes(filter)||u.nim.toLowerCase().includes(filter)));
   if(prodiId) rows = rows.filter(u=>u.prodiId===prodiId);
+  if(kelompokId) rows = rows.filter(u=>u.kelompokId===kelompokId);
+  if(coachId) rows = rows.filter(u=>u.coachId===coachId);
   if(!rows.length) return `<div class="table-empty">Tidak ada data Masta yang cocok.</div>`;
-  return `<table><thead><tr><th>NIM</th><th>Nama Masta</th><th>Prodi/Kelompok</th><th>Username</th><th style="text-align:right;">Aksi</th></tr></thead><tbody>
+  return `<table><thead><tr><th>NIM</th><th>Nama Masta</th><th>Prodi</th><th>Kelompok</th><th>Coach</th><th>Username</th><th style="text-align:right;">Aksi</th></tr></thead><tbody>
     ${rows.map(u=>`<tr>
       <td>${esc(u.nim)}</td>
       <td><span class="avatar-sm">${initials(u.nama)}</span>${esc(u.nama)}</td>
       <td>${esc(prodiName(u.prodiId))}</td>
+      <td>${esc(kelompokName(u.kelompokId))}</td>
+      <td>${esc(coachName(u.coachId))}</td>
       <td>${esc(u.username)}</td>
       <td><div class="row-actions" style="justify-content:flex-end;">
+        <button class="icon-btn" title="Lihat Detail" data-detail-masta="${u.id}">${ICON.eye}</button>
         <button class="icon-btn" title="Lihat QR" data-qr-masta="${u.id}">${ICON.qr}</button>
         <button class="icon-btn" title="Edit" data-edit-masta="${u.id}">${ICON.edit}</button>
         <button class="icon-btn danger" title="Hapus" data-del-masta="${u.id}">${ICON.trash}</button>
@@ -1169,15 +1222,21 @@ function mastaTableHTML(filter, prodiId){
 }
 function bindMastaEvents(){
   const wrap = byId('masta-table-wrap');
-  const refresh = ()=>{ wrap.innerHTML = mastaTableHTML(byId('masta-search').value, byId('masta-filter-prodi').value); bindMastaRowEvents(); };
+  const kelSel = byId('masta-filter-kelompok'); const coachSel = byId('masta-filter-coach');
+  if(STATE.mastaFilterKelompok){ kelSel.value = STATE.mastaFilterKelompok; STATE.mastaFilterKelompok=''; }
+  if(STATE.mastaFilterCoach){ coachSel.value = STATE.mastaFilterCoach; STATE.mastaFilterCoach=''; }
+  const refresh = ()=>{ wrap.innerHTML = mastaTableHTML(byId('masta-search').value, byId('masta-filter-prodi').value, kelSel.value, coachSel.value); bindMastaRowEvents(); };
   refresh();
   byId('masta-search').oninput = refresh;
   byId('masta-filter-prodi').onchange = refresh;
+  kelSel.onchange = refresh;
+  coachSel.onchange = refresh;
   byId('btn-add-masta').onclick = ()=> openMastaForm();
 }
 function bindMastaRowEvents(){
   qsa('[data-edit-masta]').forEach(b=> b.onclick=()=> openMastaForm(getMasta(b.dataset.editMasta)));
   qsa('[data-qr-masta]').forEach(b=> b.onclick=()=> openMastaQR(getMasta(b.dataset.qrMasta)));
+  qsa('[data-detail-masta]').forEach(b=> b.onclick=()=> openMastaDetailModal(getMasta(b.dataset.detailMasta)));
   qsa('[data-del-masta]').forEach(b=> b.onclick=()=>{
     const id = b.dataset.delMasta;
     confirmDialog('Hapus Data Masta','Menghapus data Masta juga akan menghapus riwayat absensinya. Lanjutkan?', async ()=>{
@@ -1254,10 +1313,54 @@ async function openMastaQR(m){
     const img = holder.querySelector('img') || holder.querySelector('canvas');
     const src = img ? (img.tagName==='CANVAS'?img.toDataURL('image/png'):img.src) : '';
     w.document.write(`<html><head><title>Cetak QR ${esc(m.nama)}</title></head><body style="font-family:sans-serif;text-align:center;padding:40px;">
-      <img src="${LOGO_SRC}" style="width:40px;"><h2>${esc(m.nama)}</h2><p>NIM ${esc(m.nim)} — ${esc(prodiName(m.prodiId))}</p>
+      <img src="${LOGO_SRC}" style="width:40px;"><h2>${esc(m.nama)}</h2>
+      <p>NIM ${esc(m.nim)} · No HP ${esc(m.noHp||'—')}</p>
+      <p>${esc(prodiName(m.prodiId))} · ${esc(kelompokName(m.kelompokId))} · Coach: ${esc(coachName(m.coachId))}</p>
       <img src="${src}" style="width:220px;"><script>window.print()<\/script></body></html>`);
     w.document.close();
   };
+}
+
+/* ============================================================
+   DETAIL PER-MASTA (dipakai Admin & Coach)
+   ============================================================ */
+function mastaDetailBodyHTML(m){
+  const att = DB.att.filter(a=>a.mastaId===m.id).sort((a,b)=>b.jamTs-a.jamTs);
+  const izin = DB.izin.filter(i=>i.mastaId===m.id).sort((a,b)=>b.createdAt-a.createdAt);
+  const sakit = DB.sakit.filter(s=>s.mastaId===m.id).sort((a,b)=>b.createdAt-a.createdAt);
+  return `
+  <div class="panel" style="margin-bottom:18px;display:flex;align-items:center;gap:16px;">
+    <div class="user-avatar" style="width:56px;height:56px;font-size:20px;">${initials(m.nama)}</div>
+    <div>
+      <div style="font-family:var(--font-display);font-weight:700;font-size:18px;">${esc(m.nama)}</div>
+      <div style="color:var(--muted);font-size:13px;">NIM ${esc(m.nim)} · ${esc(m.noHp||'—')}</div>
+      <div style="color:var(--muted);font-size:13px;">${esc(prodiName(m.prodiId))} · ${esc(kelompokName(m.kelompokId))} · Coach: ${esc(coachName(m.coachId))}</div>
+    </div>
+  </div>
+  <div class="stat-grid" style="grid-template-columns:repeat(3,1fr);">
+    <div class="stat-card"><div class="ic" style="background:var(--success-bg);color:var(--success);">${ICON.check}</div><div class="n">${att.length}</div><div class="l">Total Hadir</div></div>
+    <div class="stat-card"><div class="ic" style="background:var(--warn-bg);color:var(--warn);">${ICON.note}</div><div class="n">${izin.length}</div><div class="l">Total Izin</div></div>
+    <div class="stat-card"><div class="ic" style="background:#EEEDE7;color:var(--muted);">${ICON.medkit}</div><div class="n">${sakit.length}</div><div class="l">Total Sakit</div></div>
+  </div>
+  <div class="section-title" style="margin-top:20px;">Riwayat Absensi</div>
+  <div class="table-card"><table><thead><tr><th>Tanggal</th><th>Sesi</th><th>Jam</th></tr></thead><tbody>
+    ${att.map(a=>`<tr><td>${fmtDateHuman(a.tanggal)}</td><td>${sesiLabel(a.sesi)}</td><td>${a.jam}</td></tr>`).join('') || `<tr><td colspan="3" class="table-empty">Belum ada riwayat absensi.</td></tr>`}
+  </tbody></table></div>
+  <div class="section-title" style="margin-top:20px;">Riwayat Izin</div>
+  <div class="table-card"><table><thead><tr><th>Tanggal</th><th>Alasan</th><th>Status</th></tr></thead><tbody>
+    ${izin.map(r=>`<tr><td>${fmtDateHuman(r.tanggal)}</td><td>${esc(r.alasan||'—')}</td><td>${statusBadgeHtml(r.status)}</td></tr>`).join('') || `<tr><td colspan="3" class="table-empty">Belum ada pengajuan izin.</td></tr>`}
+  </tbody></table></div>
+  <div class="section-title" style="margin-top:20px;">Riwayat Sakit</div>
+  <div class="table-card"><table><thead><tr><th>Tanggal</th><th>Keterangan</th><th>Status</th></tr></thead><tbody>
+    ${sakit.map(r=>`<tr><td>${fmtDateHuman(r.tanggal)}</td><td>${esc(r.keterangan||'—')}${r.lampiran?` <a href="${esc(r.lampiran)}" target="_blank" rel="noopener" class="badge badge-muted">📎 Lampiran</a>`:''}</td><td>${statusBadgeHtml(r.status)}</td></tr>`).join('') || `<tr><td colspan="3" class="table-empty">Belum ada pengajuan sakit.</td></tr>`}
+  </tbody></table></div>`;
+}
+function openMastaDetailModal(m){
+  if(!m) return;
+  openModal(`
+    <div class="modal-head"><h3>Detail Masta</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="modal-body">${mastaDetailBodyHTML(m)}</div>
+    <div class="modal-foot"><button class="btn btn-outline" onclick="closeModal()">Tutup</button></div>`);
 }
 
 /* ============================================================
@@ -1403,20 +1506,37 @@ function renderScanOverlay(ok, title, msg){
 /* ============================================================
    IZIN & SAKIT
    ============================================================ */
+function izinSakitScopeCount(data){
+  if(STATE.user.role==='coach'){
+    const binaanIds = new Set(coachBinaan().map(b=>b.id));
+    return data.filter(d=>binaanIds.has(d.mastaId)).length;
+  }
+  if(STATE.user.role==='admin') return data.length;
+  return data.filter(d=>d.mastaId===STATE.user.id).length;
+}
 function viewIzinSakit(isAdmin, tab){
   tab = tab || 'izin';
+  const desc = STATE.user.role==='coach' ? 'Kelola pengajuan izin dan sakit Masta bimbingan Anda.' : (isAdmin?'Kelola pengajuan izin dan sakit seluruh Masta.':'Ajukan izin atau sakit Anda di sini.');
   return `
-  <div class="page-head"><div><h2>Izin & Sakit</h2><p>${isAdmin?'Kelola pengajuan izin dan sakit seluruh Masta.':'Ajukan izin atau sakit Anda di sini.'}</p></div>
+  <div class="page-head"><div><h2>Izin & Sakit</h2><p>${desc}</p></div>
     <button class="btn btn-brass" id="btn-add-izinsakit">${ICON.plus} Ajukan Baru</button></div>
   <div class="tabs">
-    <button class="tab-btn ${tab==='izin'?'active':''}" data-tab="izin">Izin (${DB.izin.length + (isAdmin?0:0)})</button>
-    <button class="tab-btn ${tab==='sakit'?'active':''}" data-tab="sakit">Sakit (${DB.sakit.length})</button>
+    <button class="tab-btn ${tab==='izin'?'active':''}" data-tab="izin">Izin (${izinSakitScopeCount(DB.izin)})</button>
+    <button class="tab-btn ${tab==='sakit'?'active':''}" data-tab="sakit">Sakit (${izinSakitScopeCount(DB.sakit)})</button>
   </div>
   <div id="izinsakit-list"></div>`;
 }
 function izinSakitListHTML(isAdmin, tab){
   const data = tab==='izin' ? DB.izin : DB.sakit;
-  const own = isAdmin ? data : data.filter(d=>d.mastaId===STATE.user.id);
+  let own;
+  if(STATE.user.role==='coach'){
+    const binaanIds = new Set(coachBinaan().map(b=>b.id));
+    own = data.filter(d=>binaanIds.has(d.mastaId));
+  }else if(isAdmin){
+    own = data;
+  }else{
+    own = data.filter(d=>d.mastaId===STATE.user.id);
+  }
   const rows = [...own].sort((a,b)=>b.createdAt-a.createdAt);
   if(!rows.length) return `<div class="table-card"><div class="table-empty">Belum ada pengajuan ${tab==='izin'?'izin':'sakit'}.</div></div>`;
   return `<div class="table-card"><table><thead><tr>
@@ -1439,7 +1559,8 @@ function izinSakitListHTML(isAdmin, tab){
   </tbody></table></div>`;
 }
 function bindIzinSakitEvents(isAdmin){
-  let tab = 'izin';
+  let tab = STATE.izinSakitDefaultTab || 'izin';
+  STATE.izinSakitDefaultTab = null;
   const refresh = ()=>{
     byId('izinsakit-list').innerHTML = izinSakitListHTML(isAdmin, tab);
     bindIzinSakitRowEvents(isAdmin, refresh);
@@ -1472,7 +1593,8 @@ function bindIzinSakitRowEvents(isAdmin, refresh){
   });
 }
 function openIzinSakitForm(isAdmin, defaultTab, onDone){
-  const mastaOpts = isAdmin ? DB.users.filter(u=>u.role==='maba').map(u=>`<option value="${u.id}">${esc(u.nama)} — ${esc(u.nim)}</option>`).join('') : '';
+  const mastaScope = STATE.user.role==='coach' ? coachBinaan() : DB.users.filter(u=>u.role==='maba');
+  const mastaOpts = isAdmin ? mastaScope.map(u=>`<option value="${u.id}">${esc(u.nama)} — ${esc(u.nim)}</option>`).join('') : '';
   openModal(`
     <div class="modal-head"><h3>Ajukan Izin / Sakit</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
     <div class="modal-body">
@@ -1538,16 +1660,30 @@ function openIzinSakitForm(isAdmin, defaultTab, onDone){
 /* ============================================================
    LAPORAN
    ============================================================ */
+function laporanMastaScope(kelompokId, coachId){
+  return DB.users.filter(u=>u.role==='maba'
+    && (!kelompokId || u.kelompokId===kelompokId)
+    && (!coachId || u.coachId===coachId));
+}
 function viewLaporan(){
+  const kelOpts = DB.kelompok.map(k=>`<option value="${k.id}" ${STATE.lapKelompok===k.id?'selected':''}>${esc(k.nama)}</option>`).join('');
+  const coachOpts = DB.users.filter(u=>u.role==='coach').map(c=>`<option value="${c.id}" ${STATE.lapCoach===c.id?'selected':''}>${esc(c.nama)}</option>`).join('');
   return `
   <div class="page-head"><div><h2>Laporan</h2><p>Rekap kehadiran harian dan bulanan seluruh Masta.</p></div></div>
-  <div class="pill-toggle" style="width:fit-content;margin-bottom:18px;">
-    <button class="active" data-rtab="harian">Harian</button><button data-rtab="bulanan">Bulanan</button>
+  <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:18px;" class="no-print">
+    <div class="pill-toggle" style="width:fit-content;">
+      <button class="active" data-rtab="harian">Harian</button><button data-rtab="bulanan">Bulanan</button>
+    </div>
+    <select id="lap-filter-kelompok"><option value="">Semua Kelompok</option>${kelOpts}</select>
+    <select id="lap-filter-coach"><option value="">Semua Coach</option>${coachOpts}</select>
   </div>
   <div id="laporan-content"></div>`;
 }
-function laporanHarianHTML(tanggal){
-  const mastaList = DB.users.filter(u=>u.role==='maba');
+function laporanHeaderPrint(title, sub){
+  return `<div class="print-only" style="margin-bottom:16px;"><img src="${LOGO_SRC}" style="height:36px;"><h2 style="margin-top:8px;">${esc(title)}</h2><p style="color:var(--muted);">${esc(sub)}</p></div>`;
+}
+function laporanHarianHTML(tanggal, kelompokId, coachId){
+  const mastaList = laporanMastaScope(kelompokId, coachId);
   const rows = mastaList.map(m=>{
     const att = DB.att.find(a=>a.mastaId===m.id && a.tanggal===tanggal);
     const izin = DB.izin.find(i=>i.mastaId===m.id && i.tanggal===tanggal);
@@ -1563,6 +1699,7 @@ function laporanHarianHTML(tanggal){
   const sakitC = rows.filter(r=>r.status==='Sakit').length;
   const alfa = rows.filter(r=>r.status==='Tidak Hadir').length;
   return `
+  ${laporanHeaderPrint('Laporan Harian Absensi Masta', fmtDateHuman(tanggal))}
   <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap;" class="no-print">
     <input type="date" id="lap-tanggal" value="${tanggal}">
     <div class="spacer"></div>
@@ -1576,14 +1713,13 @@ function laporanHarianHTML(tanggal){
     <div class="stat-card"><div class="ic" style="background:var(--danger-bg);color:var(--danger);">${ICON.x}</div><div class="n">${alfa}</div><div class="l">Tidak Hadir</div></div>
   </div>
   <div class="table-card">
-    <table><thead><tr><th>NIM</th><th>Nama</th><th>Prodi/Kelompok</th><th>Status</th><th>Jam</th></tr></thead><tbody>
-    ${rows.map(r=>`<tr><td>${esc(r.m.nim)}</td><td>${esc(r.m.nama)}</td><td>${esc(prodiName(r.m.prodiId))}</td><td><span class="badge ${r.cls}">${r.status}</span></td><td>${r.jam}</td></tr>`).join('') || `<tr><td colspan="5" class="table-empty">Belum ada data Masta.</td></tr>`}
+    <table><thead><tr><th>NIM</th><th>Nama</th><th>No HP</th><th>Prodi</th><th>Kelompok</th><th>Coach</th><th>Status</th><th>Jam</th></tr></thead><tbody>
+    ${rows.map(r=>`<tr><td>${esc(r.m.nim)}</td><td>${esc(r.m.nama)}</td><td>${esc(r.m.noHp||'—')}</td><td>${esc(prodiName(r.m.prodiId))}</td><td>${esc(kelompokName(r.m.kelompokId))}</td><td>${esc(coachName(r.m.coachId))}</td><td><span class="badge ${r.cls}">${r.status}</span></td><td>${r.jam}</td></tr>`).join('') || `<tr><td colspan="8" class="table-empty">Belum ada data Masta.</td></tr>`}
     </tbody></table>
   </div>`;
 }
-function laporanBulananHTML(ym){
-  const [year, month] = ym.split('-').map(Number);
-  const mastaList = DB.users.filter(u=>u.role==='maba');
+function laporanBulananHTML(ym, kelompokId, coachId){
+  const mastaList = laporanMastaScope(kelompokId, coachId);
   const rows = mastaList.map(m=>{
     const hadir = DB.att.filter(a=>a.mastaId===m.id && a.tanggal.startsWith(ym)).length;
     const izin = DB.izin.filter(i=>i.mastaId===m.id && i.tanggal.startsWith(ym)).length;
@@ -1591,6 +1727,7 @@ function laporanBulananHTML(ym){
     return {m, hadir, izin, sakit};
   });
   return `
+  ${laporanHeaderPrint('Laporan Bulanan Absensi Masta', ym)}
   <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap;" class="no-print">
     <input type="month" id="lap-bulan" value="${ym}">
     <div class="spacer"></div>
@@ -1598,8 +1735,8 @@ function laporanBulananHTML(ym){
     <button class="btn btn-outline btn-sm" id="lap-csv2">${ICON.download} Unduh Excel (CSV)</button>
   </div>
   <div class="table-card">
-    <table><thead><tr><th>NIM</th><th>Nama</th><th>Prodi/Kelompok</th><th>Total Hadir</th><th>Total Izin</th><th>Total Sakit</th></tr></thead><tbody>
-    ${rows.map(r=>`<tr><td>${esc(r.m.nim)}</td><td>${esc(r.m.nama)}</td><td>${esc(prodiName(r.m.prodiId))}</td><td>${r.hadir}</td><td>${r.izin}</td><td>${r.sakit}</td></tr>`).join('') || `<tr><td colspan="6" class="table-empty">Belum ada data Masta.</td></tr>`}
+    <table><thead><tr><th>NIM</th><th>Nama</th><th>No HP</th><th>Prodi</th><th>Kelompok</th><th>Coach</th><th>Total Hadir</th><th>Total Izin</th><th>Total Sakit</th></tr></thead><tbody>
+    ${rows.map(r=>`<tr><td>${esc(r.m.nim)}</td><td>${esc(r.m.nama)}</td><td>${esc(r.m.noHp||'—')}</td><td>${esc(prodiName(r.m.prodiId))}</td><td>${esc(kelompokName(r.m.kelompokId))}</td><td>${esc(coachName(r.m.coachId))}</td><td>${r.hadir}</td><td>${r.izin}</td><td>${r.sakit}</td></tr>`).join('') || `<tr><td colspan="9" class="table-empty">Belum ada data Masta.</td></tr>`}
     </tbody></table>
   </div>`;
 }
@@ -1612,15 +1749,17 @@ function downloadCSV(filename, rows){
 function bindLaporanEvents(){
   let mode='harian';
   const el = byId('laporan-content');
+  const kelSel = byId('lap-filter-kelompok'); const coachSel = byId('lap-filter-coach');
   const renderMode = ()=>{
+    STATE.lapKelompok = kelSel.value; STATE.lapCoach = coachSel.value;
     if(mode==='harian'){
-      el.innerHTML = laporanHarianHTML(todayStr());
-      byId('lap-tanggal').onchange = e=>{ el.innerHTML = laporanHarianHTML(e.target.value); bindHarianButtons(); };
+      el.innerHTML = laporanHarianHTML(todayStr(), kelSel.value, coachSel.value);
+      byId('lap-tanggal').onchange = e=>{ el.innerHTML = laporanHarianHTML(e.target.value, kelSel.value, coachSel.value); bindHarianButtons(); };
       bindHarianButtons();
     }else{
       const now=new Date(); const ym = now.getFullYear()+'-'+pad(now.getMonth()+1);
-      el.innerHTML = laporanBulananHTML(ym);
-      byId('lap-bulan').onchange = e=>{ el.innerHTML = laporanBulananHTML(e.target.value); bindBulananButtons(); };
+      el.innerHTML = laporanBulananHTML(ym, kelSel.value, coachSel.value);
+      byId('lap-bulan').onchange = e=>{ el.innerHTML = laporanBulananHTML(e.target.value, kelSel.value, coachSel.value); bindBulananButtons(); };
       bindBulananButtons();
     }
   };
@@ -1628,14 +1767,14 @@ function bindLaporanEvents(){
     byId('lap-print').onclick = ()=> window.print();
     byId('lap-csv').onclick = ()=>{
       const tanggal = byId('lap-tanggal').value;
-      const mastaList = DB.users.filter(u=>u.role==='maba');
-      const data = [['NIM','Nama','Prodi/Kelompok','Status','Jam']];
+      const mastaList = laporanMastaScope(kelSel.value, coachSel.value);
+      const data = [['NIM','Nama','No HP','Prodi','Kelompok','Coach','Status','Jam']];
       mastaList.forEach(m=>{
         const att = DB.att.find(a=>a.mastaId===m.id && a.tanggal===tanggal);
         const izin = DB.izin.find(i=>i.mastaId===m.id && i.tanggal===tanggal);
         const sakit = DB.sakit.find(s=>s.mastaId===m.id && s.tanggal===tanggal);
         let status='Tidak Hadir'; if(att) status='Hadir ('+sesiLabel(att.sesi)+')'; else if(izin) status='Izin'; else if(sakit) status='Sakit';
-        data.push([m.nim, m.nama, prodiName(m.prodiId), status, att?att.jam:'-']);
+        data.push([m.nim, m.nama, m.noHp||'', prodiName(m.prodiId), kelompokName(m.kelompokId), coachName(m.coachId), status, att?att.jam:'-']);
       });
       downloadCSV('Laporan_Harian_'+tanggal+'.csv', data);
     };
@@ -1644,18 +1783,19 @@ function bindLaporanEvents(){
     byId('lap-print2').onclick = ()=> window.print();
     byId('lap-csv2').onclick = ()=>{
       const ym = byId('lap-bulan').value;
-      const mastaList = DB.users.filter(u=>u.role==='maba');
-      const data = [['NIM','Nama','Prodi/Kelompok','Total Hadir','Total Izin','Total Sakit']];
+      const mastaList = laporanMastaScope(kelSel.value, coachSel.value);
+      const data = [['NIM','Nama','No HP','Prodi','Kelompok','Coach','Total Hadir','Total Izin','Total Sakit']];
       mastaList.forEach(m=>{
         const hadir = DB.att.filter(a=>a.mastaId===m.id && a.tanggal.startsWith(ym)).length;
         const izin = DB.izin.filter(i=>i.mastaId===m.id && i.tanggal.startsWith(ym)).length;
         const sakit = DB.sakit.filter(s=>s.mastaId===m.id && s.tanggal.startsWith(ym)).length;
-        data.push([m.nim, m.nama, prodiName(m.prodiId), hadir, izin, sakit]);
+        data.push([m.nim, m.nama, m.noHp||'', prodiName(m.prodiId), kelompokName(m.kelompokId), coachName(m.coachId), hadir, izin, sakit]);
       });
       downloadCSV('Laporan_Bulanan_'+ym+'.csv', data);
     };
   }
   qsa('[data-rtab]').forEach(b=> b.onclick=()=>{ mode=b.dataset.rtab; qsa('[data-rtab]').forEach(x=>x.classList.remove('active')); b.classList.add('active'); renderMode(); });
+  kelSel.onchange = renderMode; coachSel.onchange = renderMode;
   renderMode();
 }
 
@@ -1734,11 +1874,19 @@ function openBackupForm(){
    ============================================================ */
 const COACH_NAV = [
   {id:'coachhome', label:'Beranda', icon:ICON.home},
+  {id:'coachizinsakit', label:'Izin/Sakit', icon:ICON.medkit},
 ];
+function coachBinaan(){ return DB.users.filter(u=>u.role==='maba' && u.coachId===STATE.user.id); }
+function coachTopbarTitle(){
+  if(STATE.route==='coachdetail') return 'Detail Masta';
+  if(STATE.route==='coachizinsakit') return 'Izin/Sakit Bimbingan';
+  return 'Beranda Coach';
+}
 function renderCoachShell(){
   const u = STATE.user;
+  const activeNavId = STATE.route==='coachdetail' ? 'coachhome' : STATE.route;
   const navHtml = COACH_NAV.map(n=>`
-    <div class="nav-item ${STATE.route===n.id?'active':''}" data-route="${n.id}">${n.icon}<span>${n.label}</span></div>
+    <div class="nav-item ${activeNavId===n.id?'active':''}" data-route="${n.id}">${n.icon}<span>${n.label}</span></div>
   `).join('');
   return `
   <div id="sidebar-scrim" class="${STATE.sidebarOpen?'show':''}"></div>
@@ -1755,7 +1903,7 @@ function renderCoachShell(){
       <div class="topbar">
         <div style="display:flex;align-items:center;gap:10px;">
           <button class="hamburger" id="btn-hamburger">☰</button>
-          <h1>Beranda Coach</h1>
+          <h1>${coachTopbarTitle()}</h1>
         </div>
         <div class="clock" id="topbar-clock"></div>
       </div>
@@ -1764,22 +1912,79 @@ function renderCoachShell(){
   </div>`;
 }
 function renderCoachContent(){
-  const binaan = DB.users.filter(u=>u.role==='maba' && u.coachId===STATE.user.id).length;
+  if(STATE.route==='coachdetail' && STATE.coachDetailId) return viewCoachMastaDetail(STATE.coachDetailId);
+  if(STATE.route==='coachizinsakit') return viewIzinSakit(true, STATE.izinSakitDefaultTab||'izin');
+  return viewCoachHome();
+}
+function viewCoachHome(){
+  const u = STATE.user;
+  const binaan = coachBinaan();
+  const today = todayStr();
+  const hadirIds = new Set(DB.att.filter(a=>a.tanggal===today && binaan.some(b=>b.id===a.mastaId)).map(a=>a.mastaId));
+  const izinTodayIds = new Set(DB.izin.filter(i=>i.tanggal===today).map(i=>i.mastaId));
+  const sakitTodayIds = new Set(DB.sakit.filter(s=>s.tanggal===today).map(s=>s.mastaId));
+  const izinSakitCount = binaan.filter(b=> izinTodayIds.has(b.id) || sakitTodayIds.has(b.id)).length;
+  const belumAbsen = binaan.filter(b=> !hadirIds.has(b.id) && !izinTodayIds.has(b.id) && !sakitTodayIds.has(b.id)).length;
+
+  const rows = binaan.map(b=>{
+    let statusBadge;
+    if(hadirIds.has(b.id)){
+      const sesiHari = DB.att.filter(a=>a.mastaId===b.id && a.tanggal===today).map(a=>sesiLabel(a.sesi));
+      statusBadge = `<span class="badge badge-success">Hadir · ${sesiHari.join(', ')}</span>`;
+    } else if(izinTodayIds.has(b.id)) statusBadge = `<span class="badge badge-warn">Izin</span>`;
+    else if(sakitTodayIds.has(b.id)) statusBadge = `<span class="badge badge-muted">Sakit</span>`;
+    else statusBadge = `<span class="badge badge-danger">Belum Absen</span>`;
+    return `<div class="list-row clickable" data-coach-detail="${b.id}">
+      <span><span class="avatar-sm">${initials(b.nama)}</span><b>${esc(b.nama)}</b> · ${esc(b.nim)} · ${esc(kelompokName(b.kelompokId))}</span>
+      ${statusBadge}
+    </div>`;
+  }).join('') || `<div class="list-row" style="color:var(--muted);">Belum ada Masta yang memilih Anda sebagai Coach.</div>`;
+
   return `
-  <div class="page-head"><div><h2>Selamat datang, ${esc(STATE.user.nama)}</h2><p>Dashboard Coach lengkap (statistik bimbingan, riwayat per-Masta) sedang disiapkan.</p></div></div>
+  <div class="page-head"><div><h2>Selamat datang, ${esc(u.nama)}</h2><p>Ringkasan bimbingan Anda — ${fmtDateHuman(today)}.</p></div></div>
   <div class="stat-grid">
-    <div class="stat-card hero"><div class="ic" style="background:rgba(255,255,255,.12);color:#fff;">${ICON.users}</div><div class="n">${binaan}</div><div class="l">Masta Bimbingan</div></div>
+    <div class="stat-card hero"><div class="ic" style="background:rgba(255,255,255,.12);color:#fff;">${ICON.users}</div><div class="n">${binaan.length}</div><div class="l">Total Bimbingan</div></div>
+    <div class="stat-card"><div class="ic" style="background:var(--success-bg);color:var(--success);">${ICON.check}</div><div class="n">${hadirIds.size}</div><div class="l">Hadir Hari Ini</div></div>
+    <div class="stat-card"><div class="ic" style="background:var(--warn-bg);color:var(--warn);">${ICON.medkit}</div><div class="n">${izinSakitCount}</div><div class="l">Izin/Sakit Hari Ini</div></div>
+    <div class="stat-card"><div class="ic" style="background:var(--danger-bg);color:var(--danger);">${ICON.x}</div><div class="n">${belumAbsen}</div><div class="l">Belum Absen</div></div>
   </div>
-  <div class="panel" style="margin-top:18px;"><p style="color:var(--muted);font-size:13.5px;">Fitur dashboard Coach (absen masuk/pulang, izin/sakit, daftar &amp; detail Masta bimbingan) akan hadir pada tahap pengembangan berikutnya.</p></div>`;
+  <div class="section-title" style="margin-top:22px;">Daftar Masta Bimbingan</div>
+  <div class="panel">${rows}</div>`;
+}
+function viewCoachMastaDetail(id){
+  const m = getMasta(id);
+  if(!m || m.coachId !== STATE.user.id){
+    return `<button class="btn btn-outline btn-sm no-print" data-back-coach="1" style="margin-bottom:16px;">← Kembali</button>
+    <div class="empty-state">${ICON.user}<p>Masta ini tidak ditemukan atau bukan bimbingan Anda.</p></div>`;
+  }
+  return `<button class="btn btn-outline btn-sm no-print" data-back-coach="1" style="margin-bottom:16px;">← Kembali ke Daftar Bimbingan</button>
+  ${mastaDetailBodyHTML(m)}`;
 }
 function bindCoachEvents(){
   qsa('.nav-item[data-route]').forEach(el=>{
-    el.onclick = ()=>{ STATE.route = el.dataset.route; STATE.sidebarOpen=false; render(); };
+    el.onclick = ()=>{ STATE.route = el.dataset.route; STATE.coachDetailId=null; STATE.sidebarOpen=false; render(); };
   });
   const hb = byId('btn-hamburger'); if(hb) hb.onclick = ()=>{ STATE.sidebarOpen=!STATE.sidebarOpen; render(); };
   const scrim = byId('sidebar-scrim'); if(scrim) scrim.onclick = ()=>{ STATE.sidebarOpen=false; render(); };
   byId('btn-logout').onclick = ()=> confirmDialog('Keluar Akun','Anda yakin ingin keluar dari Absensi Masta?', doLogout);
   startClock();
+  bindCoachContentEvents();
+}
+function bindCoachContentEvents(){
+  if(STATE.route==='coachdetail'){
+    qsa('[data-back-coach]').forEach(el=> el.onclick=()=>{ STATE.route='coachhome'; STATE.coachDetailId=null; render(); });
+    return;
+  }
+  if(STATE.route==='coachizinsakit'){
+    bindIzinSakitEvents(true);
+    return;
+  }
+  qsa('[data-coach-detail]').forEach(el=> el.onclick=()=>{ STATE.coachDetailId = el.dataset.coachDetail; STATE.route='coachdetail'; render(); });
+}
+function refreshCoachContent(){
+  const el = byId('admin-content');
+  if(el){ el.innerHTML = renderCoachContent(); bindCoachContentEvents(); }
+  const h1 = qs('.topbar h1'); if(h1) h1.textContent = coachTopbarTitle();
 }
 
 const MABA_NAV = [
@@ -1823,6 +2028,7 @@ function bindMabaContentEvents(){
   switch(STATE.route){
     case 'beranda': renderMabaQR(); break;
     case 'izinsakit': bindIzinSakitEvents(false); break;
+    case 'profil': bindMabaProfilEvents(); break;
   }
 }
 function refreshMabaContent(){
@@ -1836,6 +2042,8 @@ function viewMabaBeranda(){
   const totalHadir = DB.att.filter(a=>a.mastaId===u.id).length;
   const totalIzin = DB.izin.filter(i=>i.mastaId===u.id).length;
   const totalSakit = DB.sakit.filter(s=>s.mastaId===u.id).length;
+  const todayIzin = DB.izin.find(i=>i.mastaId===u.id && i.tanggal===today);
+  const todaySakit = DB.sakit.find(s=>s.mastaId===u.id && s.tanggal===today);
   return `
   <div class="qr-hero">
     <div class="qbox" id="maba-qr-box"></div>
@@ -1855,6 +2063,16 @@ function viewMabaBeranda(){
       ${rec? `<span class="badge badge-success">Hadir · ${rec.jam}</span>` : `<span class="badge badge-muted">Belum Absen</span>`}
     </div>`;
   }).join('')}
+  ${(todayIzin||todaySakit) ? `
+  <div class="section-title" style="margin-top:18px;">Pengajuan Hari Ini</div>
+  <div class="detail-card">
+    <div style="width:38px;height:38px;border-radius:10px;background:var(--warn-bg);color:var(--warn);display:flex;align-items:center;justify-content:center;">${ICON.medkit}</div>
+    <div style="flex:1;">
+      <div style="font-weight:700;font-size:13.5px;">${todayIzin? 'Izin':'Sakit'}</div>
+      <div style="font-size:12px;color:var(--muted);">${esc(todayIzin? (todayIzin.alasan||'—') : (todaySakit.keterangan||'—'))}</div>
+    </div>
+    ${statusBadgeHtml(todayIzin? todayIzin.status : todaySakit.status)}
+  </div>` : ''}
   `;
 }
 async function renderMabaQR(){
@@ -1882,6 +2100,10 @@ function viewMabaRiwayat(){
 }
 function viewMabaProfil(){
   const u = STATE.user;
+  const kelompokOpts = DB.kelompok.filter(k=>k.prodiId===u.prodiId)
+    .map(k=>`<option value="${k.id}" ${u.kelompokId===k.id?'selected':''}>${esc(k.nama)}</option>`).join('');
+  const coachOpts = DB.users.filter(c=>c.role==='coach' && c.active!==false && (!c.prodiId || c.prodiId===u.prodiId))
+    .map(c=>`<option value="${c.id}" ${u.coachId===c.id?'selected':''}>${esc(c.nama)}</option>`).join('');
   return `
   <div class="section-title">Profil Akun</div>
   <div class="panel">
@@ -1890,10 +2112,59 @@ function viewMabaProfil(){
       <div><div style="font-weight:700;font-family:var(--font-display);">${esc(u.nama)}</div><div style="color:var(--muted);font-size:12.5px;">Masta</div></div>
     </div>
     <div class="field"><label>NIM</label><input value="${esc(u.nim)}" disabled></div>
-    <div class="field"><label>Prodi/Kelompok</label><input value="${esc(prodiName(u.prodiId))}" disabled></div>
-    <div class="field"><label>Username</label><input value="${esc(u.username)}" disabled></div>
-    <button class="btn btn-outline btn-block" id="btn-change-pass">Ubah Password</button>
+    <div class="field"><label>Nomor HP</label><input value="${esc(u.noHp||'—')}" disabled></div>
+    <div class="field"><label>Prodi</label><input value="${esc(prodiName(u.prodiId))}" disabled></div>
+    <form id="username-form">
+      <div class="field"><label>Username</label><input type="text" name="username" value="${esc(u.username)}" required minlength="3" autocomplete="off"></div>
+      <button class="btn btn-primary btn-block" type="submit">Simpan Username</button>
+    </form>
+    <button class="btn btn-outline btn-block" id="btn-change-pass" style="margin-top:10px;">Ubah Password</button>
+  </div>
+  <div class="section-title" style="margin-top:22px;">Kelompok &amp; Coach</div>
+  <div class="panel">
+    <p class="field-hint" style="margin-bottom:14px;">Kelompok saat ini: <b>${esc(kelompokName(u.kelompokId))}</b> · Coach saat ini: <b>${esc(coachName(u.coachId))}</b></p>
+    <p class="field-hint" style="margin-bottom:14px;">Pilih Kelompok dan Coach pembimbing kamu. Bisa diubah kapan saja.</p>
+    <form id="kelompok-coach-form">
+      <div class="field"><label>Kelompok</label><select name="kelompokId">
+        <option value="">${kelompokOpts.length? 'Pilih Kelompok' : 'Belum ada Kelompok untuk Prodi ini'}</option>${kelompokOpts}
+      </select></div>
+      <div class="field"><label>Coach</label><select name="coachId">
+        <option value="">${coachOpts.length? 'Pilih Coach' : 'Belum ada Coach untuk Prodi ini'}</option>${coachOpts}
+      </select></div>
+      <button class="btn btn-primary btn-block" type="submit">Simpan Kelompok &amp; Coach</button>
+    </form>
   </div>`;
+}
+function bindMabaProfilEvents(){
+  const f = byId('kelompok-coach-form');
+  if(f){
+    f.onsubmit = async e=>{
+      e.preventDefault();
+      const fd = new FormData(f);
+      STATE.user.kelompokId = fd.get('kelompokId') || '';
+      STATE.user.coachId = fd.get('coachId') || '';
+      await saveDB('users');
+      toast('Kelompok & Coach berhasil disimpan.','success');
+      refreshMabaContent();
+    };
+  }
+  const uf = byId('username-form');
+  if(uf){
+    uf.onsubmit = async e=>{
+      e.preventDefault();
+      const fd = new FormData(uf);
+      const newUsername = (fd.get('username')||'').trim();
+      if(!newUsername){ toast('Username tidak boleh kosong.','error'); return; }
+      if(newUsername.toLowerCase()===STATE.user.username.toLowerCase()){ toast('Username tidak berubah.','info'); return; }
+      if(DB.users.some(x=>x.id!==STATE.user.id && x.username.toLowerCase()===newUsername.toLowerCase())){
+        toast('Username sudah digunakan, pilih username lain.','error'); return;
+      }
+      STATE.user.username = newUsername;
+      await saveDB('users');
+      toast('Username berhasil diubah.','success');
+      refreshMabaContent();
+    };
+  }
 }
 document.addEventListener('click', e=>{
   if(e.target && e.target.id==='btn-change-pass'){
@@ -1915,6 +2186,40 @@ document.addEventListener('click', e=>{
 });
 
 /* ============================================================
+   AUTO-REFRESH (sinkronisasi berkala tanpa reload manual)
+   ============================================================ */
+function isSafeToAutoRefresh(){
+  const overlay = byId('modal-overlay');
+  if(overlay && !overlay.classList.contains('hidden')) return false; /* modal/form sedang terbuka */
+  if(typeof scanState!=='undefined' && scanState.active) return false; /* sesi scan QR aktif */
+  const ae = document.activeElement;
+  if(ae && ['INPUT','TEXTAREA','SELECT'].includes(ae.tagName)) return false; /* pengguna sedang mengetik/memilih */
+  return true;
+}
+function refreshCurrentContent(){
+  if(!STATE.user) return;
+  if(STATE.user.role==='admin') refreshAdminContent();
+  else if(STATE.user.role==='coach') refreshCoachContent();
+  else refreshMabaContent();
+}
+let autoRefreshTimer = null;
+function startAutoRefresh(){
+  if(autoRefreshTimer) clearInterval(autoRefreshTimer);
+  autoRefreshTimer = setInterval(async ()=>{
+    if(!STATE.user) return;
+    if(!isSafeToAutoRefresh()) return;
+    try{
+      await loadAllDB();
+      const fresh = DB.users.find(x=>x.id===STATE.user.id);
+      if(!fresh){ return; }
+      STATE.user = fresh;
+      if(!isSafeToAutoRefresh()) return; /* cek ulang; state bisa berubah selama fetch */
+      refreshCurrentContent();
+    }catch(e){ console.error('auto-refresh error', e); }
+  }, 15000);
+}
+
+/* ============================================================
    INIT
    ============================================================ */
 async function init(){
@@ -1922,6 +2227,7 @@ async function init(){
   await seedIfEmpty();
   await tryRestoreSession();
   render();
+  startAutoRefresh();
 }
 init();
 </script>
