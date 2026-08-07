@@ -1038,10 +1038,10 @@ function kelompokTableHTML(filter){
   filter = (filter||'').toLowerCase();
   const rows = DB.kelompok.filter(k=> k.nama.toLowerCase().includes(filter));
   if(!rows.length) return `<div class="table-empty">Belum ada data Kelompok.</div>`;
-  return `<table><thead><tr><th>Nama Kelompok</th><th>Prodi</th><th>Jumlah Masta</th><th style="text-align:right;">Aksi</th></tr></thead><tbody>
+  return `<table><thead><tr><th>Nama Kelompok</th><th>Jumlah Masta</th><th style="text-align:right;">Aksi</th></tr></thead><tbody>
     ${rows.map(k=>{
       const count = DB.users.filter(u=>u.role==='maba'&&u.kelompokId===k.id).length;
-      return `<tr><td><b>${esc(k.nama)}</b></td><td>${esc(prodiName(k.prodiId))}</td><td>${count} Masta</td>
+      return `<tr><td><b>${esc(k.nama)}</b></td><td>${count} Masta</td>
       <td><div class="row-actions" style="justify-content:flex-end;">
         <button class="icon-btn" data-edit-kelompok="${k.id}">${ICON.edit}</button>
         <button class="icon-btn danger" data-del-kelompok="${k.id}">${ICON.trash}</button>
@@ -1067,23 +1067,20 @@ function bindKelompokRowEvents(){
   });
 }
 function openKelompokForm(existing){
-  const opts = DB.prodi.map(p=>`<option value="${p.id}" ${existing&&existing.prodiId===p.id?'selected':''}>${esc(p.nama)}</option>`).join('');
   openModal(`
     <div class="modal-head"><h3>${existing?'Edit':'Tambah'} Kelompok</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
     <div class="modal-body">
       <form id="kelompok-form">
         <div class="field"><label>Nama Kelompok</label><input name="nama" required value="${existing?esc(existing.nama):''}" placeholder="cth. Kelompok 1"></div>
-        <div class="field"><label>Prodi</label><select name="prodiId" required><option value="">${DB.prodi.length?'Pilih Prodi':'Belum ada data Prodi'}</option>${opts}</select></div>
       </form>
     </div>
     <div class="modal-foot"><button class="btn btn-outline" onclick="closeModal()">Batal</button><button class="btn btn-primary" id="kelompok-save">Simpan</button></div>`);
   byId('kelompok-save').onclick = async ()=>{
     const f = new FormData(byId('kelompok-form'));
-    const nama = f.get('nama').trim(); const prodiId = f.get('prodiId');
+    const nama = f.get('nama').trim();
     if(!nama){ toast('Nama wajib diisi.','error'); return; }
-    if(!prodiId){ toast('Prodi wajib dipilih.','error'); return; }
-    if(existing){ existing.nama=nama; existing.prodiId=prodiId; }
-    else DB.kelompok.push({id:uid(), nama, prodiId, createdAt:Date.now()});
+    if(existing){ existing.nama=nama; }
+    else DB.kelompok.push({id:uid(), nama, createdAt:Date.now()});
     await saveDB('kelompok'); closeModal(); toast('Data Kelompok tersimpan.','success'); refreshAdminContent();
   };
 }
@@ -1241,7 +1238,7 @@ function bindMastaRowEvents(){
 }
 function openMastaForm(existing){
   const opts = DB.prodi.map(p=>`<option value="${p.id}" ${existing&&existing.prodiId===p.id?'selected':''}>${esc(p.nama)}</option>`).join('');
-  const kelOpts = DB.kelompok.map(k=>`<option value="${k.id}" ${existing&&existing.kelompokId===k.id?'selected':''}>${esc(k.nama)} — ${esc(prodiName(k.prodiId))}</option>`).join('');
+  const kelOpts = DB.kelompok.map(k=>`<option value="${k.id}" ${existing&&existing.kelompokId===k.id?'selected':''}>${esc(k.nama)}</option>`).join('');
   openModal(`
     <div class="modal-head"><h3>${existing?'Edit':'Tambah'} Masta</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
     <div class="modal-body">
