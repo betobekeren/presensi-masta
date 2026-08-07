@@ -1965,49 +1965,132 @@ function viewMabaRiwayat(){
     </div>`).join('');
 }
 function viewMabaProfil(){
-const kelompokOpts = DB.kelompok
-  .map(k => `
-    <option value="${k.id}" ${u.kelompokId === k.id ? 'selected' : ''}>
-      ${esc(k.nama)}
-    </option>
-  `)
-  .join('');
+  const u = STATE.user;
 
-const coachOpts = DB.users
-  .filter(c => c.role === 'coach' && c.active !== false)
-  .map(c => `
-    <option value="${c.id}" ${u.coachId === c.id ? 'selected' : ''}>
-      ${esc(c.nama)}
-    </option>
-  `)
-  .join('');
+  const kelompokOpts = DB.kelompok
+    .map(k => `
+      <option value="${k.id}" ${u.kelompokId === k.id ? 'selected' : ''}>
+        ${esc(k.nama)}
+      </option>
+    `)
+    .join('');
+
+  const coachOpts = DB.users
+    .filter(c => c.role === 'coach' && c.active !== false)
+    .map(c => `
+      <option value="${c.id}" ${u.coachId === c.id ? 'selected' : ''}>
+        ${esc(c.nama)}
+      </option>
+    `)
+    .join('');
+
   return `
-  <div class="section-title">Profil Akun</div>
-  <div class="panel">
-    <div style="display:flex;align-items:center;gap:14px;margin-bottom:18px;">
-      <div class="user-avatar" style="width:52px;height:52px;font-size:18px;">${initials(u.nama)}</div>
-      <div><div style="font-weight:700;font-family:var(--font-display);">${esc(u.nama)}</div><div style="color:var(--muted);font-size:12.5px;">Masta</div></div>
+    <div class="section-title">Profil Akun</div>
+
+    <div class="panel">
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:18px;">
+        <div class="user-avatar" style="width:52px;height:52px;font-size:18px;">
+          ${initials(u.nama)}
+        </div>
+
+        <div>
+          <div style="font-weight:700;font-family:var(--font-display);">
+            ${esc(u.nama)}
+          </div>
+
+          <div style="color:var(--muted);font-size:12.5px;">
+            Masta
+          </div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>NIM</label>
+        <input value="${esc(u.nim)}" disabled>
+      </div>
+
+      <div class="field">
+        <label>Nomor HP</label>
+        <input value="${esc(u.noHp || '—')}" disabled>
+      </div>
+
+      <div class="field">
+        <label>Prodi</label>
+        <input value="${esc(prodiName(u.prodiId))}" disabled>
+      </div>
+
+      <div class="field">
+        <label>Kelompok</label>
+
+        <select id="maba-kelompok-select">
+          <option value="">
+            ${kelompokOpts.length ? 'Pilih Kelompok' : 'Belum ada Kelompok'}
+          </option>
+          ${kelompokOpts}
+        </select>
+      </div>
+
+      <form id="username-form">
+        <div class="field">
+          <label>Username</label>
+
+          <input
+            type="text"
+            name="username"
+            value="${esc(u.username)}"
+            required
+            minlength="3"
+            autocomplete="off"
+          >
+        </div>
+
+        <button class="btn btn-primary btn-block" type="submit">
+          Simpan Username
+        </button>
+      </form>
+
+      <button
+        class="btn btn-outline btn-block"
+        id="btn-change-pass"
+        style="margin-top:10px;"
+      >
+        Ubah Password
+      </button>
     </div>
-    <div class="field"><label>NIM</label><input value="${esc(u.nim)}" disabled></div>
-    <div class="field"><label>Nomor HP</label><input value="${esc(u.noHp||'—')}" disabled></div>
-    <div class="field"><label>Prodi</label><input value="${esc(prodiName(u.prodiId))}" disabled></div>
-    <div class="field"><label>Kelompok</label><input value="${esc(kelompokName(u.kelompokId))}" disabled></div>
-    <form id="username-form">
-      <div class="field"><label>Username</label><input type="text" name="username" value="${esc(u.username)}" required minlength="3" autocomplete="off"></div>
-      <button class="btn btn-primary btn-block" type="submit">Simpan Username</button>
-    </form>
-    <button class="btn btn-outline btn-block" id="btn-change-pass" style="margin-top:10px;">Ubah Password</button>
-  </div>
-  <div class="section-title" style="margin-top:22px;">Coach</div>
-  <div class="panel">
-    <p class="field-hint" style="margin-bottom:14px;">Kelompok ditentukan oleh Admin. Kamu bisa memilih Coach pembimbingmu sendiri di bawah ini.</p>
-    <form id="coach-select-form">
-      <div class="field"><label>Coach</label><select name="coachId">
-        <option value="">${coachOpts.length? 'Pilih Coach' : 'Belum ada Coach untuk Prodi ini'}</option>${coachOpts}
-      </select></div>
-      <button class="btn btn-primary btn-block" type="submit">Simpan Coach</button>
-    </form>
-  </div>`;
+
+    <div class="section-title" style="margin-top:22px;">
+      Coach
+    </div>
+
+    <div class="panel">
+      <p class="field-hint" style="margin-bottom:14px;">
+        Kelompok dan Coach dapat kamu pilih dari data yang telah disediakan Admin.
+      </p>
+
+      <form id="coach-select-form">
+
+        <div class="field">
+          <label>Coach</label>
+
+          <select name="coachId">
+            <option value="">
+              ${coachOpts.length ? 'Pilih Coach' : 'Belum ada Coach'}
+            </option>
+
+            ${coachOpts}
+          </select>
+        </div>
+
+        <button
+          class="btn btn-primary btn-block"
+          type="submit"
+        >
+          Simpan Kelompok & Coach
+        </button>
+
+      </form>
+    </div>
+  `;
 }
 function bindMabaProfilEvents(){
   const f = byId('coach-select-form');
