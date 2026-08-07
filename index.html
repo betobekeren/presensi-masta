@@ -1966,8 +1966,10 @@ function viewMabaRiwayat(){
 }
 function viewMabaProfil(){
   const u = STATE.user;
-  const coachOpts = DB.users.filter(c=>c.role==='coach' && c.active!==false && (!c.prodiId || c.prodiId===u.prodiId))
-    .map(c=>`<option value="${c.id}" ${u.coachId===c.id?'selected':''}>${esc(c.nama)}</option>`).join('');
+  const coachOpts = DB.users
+  .filter(c => c.role === 'coach' && c.active !== false)
+  .map(c => `<option value="${c.id}" ${u.coachId===c.id?'selected':''}>${esc(c.nama)}</option>`)
+  .join('');
   return `
   <div class="section-title">Profil Akun</div>
   <div class="panel">
