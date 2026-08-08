@@ -394,6 +394,7 @@ let DB = { users:[], prodi:[], kelompok:[], att:[], izin:[], sakit:[], backup:[]
 let STATE = { user:null, route:'dashboard', sidebarOpen:false, scanSession:null,
   dashKelompok:'', dashCoach:'', izinSakitDefaultTab:null,
   mastaFilterKelompok:'', mastaFilterCoach:'', coachDetailId:null,
+  izinSakitKelompok:'', izinSakitCoach:'',
   lapKelompok:'', lapCoach:'' };
 
 /* ---------- storage helpers (Google Sheets via Apps Script) ---------- */
@@ -1498,15 +1499,32 @@ function renderScanOverlay(ok, title, msg){
    IZIN & SAKIT
    ============================================================ */
 function izinSakitScopeCount(data){
-  if(STATE.user.role==='admin') return data.length;
+  if(STATE.user.role==='admin'){
+    if(!STATE.izinSakitKelompok && !STATE.izinSakitCoach) return data.length;
+    return data.filter(d=>{
+      const m = getMasta(d.mastaId);
+      if(!m) return false;
+      if(STATE.izinSakitKelompok && m.kelompokId!==STATE.izinSakitKelompok) return false;
+      if(STATE.izinSakitCoach && m.coachId!==STATE.izinSakitCoach) return false;
+      return true;
+    }).length;
+  }
   return data.filter(d=>d.mastaId===STATE.user.id).length;
 }
 function viewIzinSakit(isAdmin, tab){
   tab = tab || 'izin';
   const desc = isAdmin?'Kelola pengajuan izin dan sakit seluruh Masta.':'Ajukan izin atau sakit Anda di sini.';
+  const kelOpts = DB.kelompok.map(k=>`<option value="${k.id}" ${STATE.izinSakitKelompok===k.id?'selected':''}>${esc(k.nama)}</option>`).join('');
+  const coachOpts = DB.users.filter(u=>u.role==='coach').map(c=>`<option value="${c.id}" ${STATE.izinSakitCoach===c.id?'selected':''}>${esc(c.nama)}</option>`).join('');
   return `
   <div class="page-head"><div><h2>Izin & Sakit</h2><p>${desc}</p></div>
     <button class="btn btn-brass" id="btn-add-izinsakit">${ICON.plus} Ajukan Baru</button></div>
+  ${isAdmin? `
+  <div class="table-toolbar no-print" style="margin-bottom:14px;padding:0;border:none;">
+    <select id="izinsakit-filter-kelompok"><option value="">Semua Kelompok</option>${kelOpts}</select>
+    <select id="izinsakit-filter-coach"><option value="">Semua Coach</option>${coachOpts}</select>
+    ${(STATE.izinSakitKelompok||STATE.izinSakitCoach)? `<button class="btn btn-outline btn-sm" id="izinsakit-filter-reset">Reset Filter</button>`:''}
+  </div>`:''}
   <div class="tabs">
     <button class="tab-btn ${tab==='izin'?'active':''}" data-tab="izin">Izin (${izinSakitScopeCount(DB.izin)})</button>
     <button class="tab-btn ${tab==='sakit'?'active':''}" data-tab="sakit">Sakit (${izinSakitScopeCount(DB.sakit)})</button>
@@ -1517,20 +1535,26 @@ function izinSakitListHTML(isAdmin, tab){
   const data = tab==='izin' ? DB.izin : DB.sakit;
   let own;
   if(isAdmin){
-    own = data;
+    own = data.filter(d=>{
+      const m = getMasta(d.mastaId);
+      if(!m) return false;
+      if(STATE.izinSakitKelompok && m.kelompokId!==STATE.izinSakitKelompok) return false;
+      if(STATE.izinSakitCoach && m.coachId!==STATE.izinSakitCoach) return false;
+      return true;
+    });
   }else{
     own = data.filter(d=>d.mastaId===STATE.user.id);
   }
   const rows = [...own].sort((a,b)=>b.createdAt-a.createdAt);
-  if(!rows.length) return `<div class="table-card"><div class="table-empty">Belum ada pengajuan ${tab==='izin'?'izin':'sakit'}.</div></div>`;
+  if(!rows.length) return `<div class="table-card"><div class="table-empty">Belum ada pengajuan ${tab==='izin'?'izin':'sakit'} yang cocok dengan filter.</div></div>`;
   return `<div class="table-card"><table><thead><tr>
-    ${isAdmin?'<th>Nama Masta</th>':''}<th>Tanggal</th><th>${tab==='izin'?'Alasan':'Keterangan'}</th><th>Status</th><th style="text-align:right;">Aksi</th>
+    ${isAdmin?'<th>Nama Masta</th><th>Kelompok</th><th>Coach</th>':''}<th>Tanggal</th><th>${tab==='izin'?'Alasan':'Keterangan'}</th><th>Status</th><th style="text-align:right;">Aksi</th>
   </tr></thead><tbody>
     ${rows.map(r=>{
       const m = getMasta(r.mastaId);
       const statusBadge = r.status==='approved' ? `<span class="badge badge-success">Disetujui</span>` : r.status==='rejected' ? `<span class="badge badge-danger">Ditolak</span>` : `<span class="badge badge-warn">Menunggu</span>`;
       return `<tr>
-        ${isAdmin?`<td><span class="avatar-sm">${initials(m?m.nama:'?')}</span>${esc(m?m.nama:'—')}</td>`:''}
+        ${isAdmin?`<td><span class="avatar-sm">${initials(m?m.nama:'?')}</span>${esc(m?m.nama:'—')}</td><td>${esc(kelompokName(m?m.kelompokId:''))}</td><td>${esc(coachName(m?m.coachId:''))}</td>`:''}
         <td>${fmtDateHuman(r.tanggal)}</td>
         <td>${esc(tab==='izin'?r.alasan:r.keterangan)}${tab==='sakit'&&r.lampiran?` <a href="${esc(r.lampiran)}" target="_blank" rel="noopener" class="badge badge-muted">📎 Lihat Lampiran</a>`:''}</td>
         <td>${statusBadge}</td>
@@ -1552,6 +1576,11 @@ function bindIzinSakitEvents(isAdmin){
   refresh();
   qsa('.tab-btn[data-tab]').forEach(b=> b.onclick=()=>{ tab=b.dataset.tab; qsa('.tab-btn').forEach(x=>x.classList.remove('active')); b.classList.add('active'); refresh(); });
   byId('btn-add-izinsakit').onclick = ()=> openIzinSakitForm(isAdmin, tab, refresh);
+  if(isAdmin){
+    const kf = byId('izinsakit-filter-kelompok'); if(kf) kf.onchange = e=>{ STATE.izinSakitKelompok = e.target.value; refreshAdminContent(); };
+    const cf = byId('izinsakit-filter-coach'); if(cf) cf.onchange = e=>{ STATE.izinSakitCoach = e.target.value; refreshAdminContent(); };
+    const rb = byId('izinsakit-filter-reset'); if(rb) rb.onclick = ()=>{ STATE.izinSakitKelompok=''; STATE.izinSakitCoach=''; refreshAdminContent(); };
+  }
 }
 function bindIzinSakitRowEvents(isAdmin, refresh){
   qsa('[data-approve]').forEach(b=> b.onclick=async ()=>{
