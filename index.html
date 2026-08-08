@@ -760,7 +760,7 @@ function bindAuthEvents(){
    ============================================================ */
 const ADMIN_NAV = [
   {id:'dashboard', label:'Beranda', icon:ICON.home},
-  {id:'prodi', label:'Prodi', icon:ICON.group},
+  {id:'prodi', label:'Prodi/Kelompok', icon:ICON.group},
   {id:'kelompok', label:'Kelompok', icon:ICON.group},
   {id:'coach', label:'Coach', icon:ICON.user},
   {id:'masta', label:'Data Masta', icon:ICON.users},
@@ -964,21 +964,21 @@ function bindDashboardEvents(){
    ============================================================ */
 function viewProdi(){
   return `
-  <div class="page-head"><div><h2>Prodi</h2><p>Kelola daftar Program Studi (Prodi). Data Coach dikelola khusus di menu Coach.</p></div>
-    <button class="btn btn-brass" id="btn-add-prodi">${ICON.plus} Tambah Prodi</button></div>
+  <div class="page-head"><div><h2>Prodi/Kelompok</h2><p>Kelola daftar Prodi/Kelompok beserta Coach pendamping.</p></div>
+    <button class="btn btn-brass" id="btn-add-prodi">${ICON.plus} Tambah Prodi/Kelompok</button></div>
   <div class="table-card">
-    <div class="table-toolbar"><input type="search" id="prodi-search" placeholder="Cari nama Prodi..." style="min-width:260px;"></div>
+    <div class="table-toolbar"><input type="search" id="prodi-search" placeholder="Cari nama Prodi/Kelompok atau Coach..." style="min-width:260px;"></div>
     <div id="prodi-table-wrap"></div>
   </div>`;
 }
 function prodiTableHTML(filter){
   filter = (filter||'').toLowerCase();
-  const rows = DB.prodi.filter(p=> p.nama.toLowerCase().includes(filter));
-  if(!rows.length) return `<div class="table-empty">Belum ada data Prodi.</div>`;
-  return `<table><thead><tr><th>Nama Prodi</th><th>Jumlah Masta</th><th style="text-align:right;">Aksi</th></tr></thead><tbody>
+  const rows = DB.prodi.filter(p=> p.nama.toLowerCase().includes(filter) || (p.coach||'').toLowerCase().includes(filter));
+  if(!rows.length) return `<div class="table-empty">Belum ada data Prodi/Kelompok.</div>`;
+  return `<table><thead><tr><th>Nama Prodi/Kelompok</th><th>Coach</th><th>Jumlah Masta</th><th style="text-align:right;">Aksi</th></tr></thead><tbody>
     ${rows.map(p=>{
       const count = DB.users.filter(u=>u.role==='maba'&&u.prodiId===p.id).length;
-      return `<tr><td><b>${esc(p.nama)}</b></td><td>${count} Masta</td>
+      return `<tr><td><b>${esc(p.nama)}</b></td><td>${esc(p.coach||'—')}</td><td>${count} Masta</td>
       <td><div class="row-actions" style="justify-content:flex-end;">
         <button class="icon-btn" data-edit-prodi="${p.id}">${ICON.edit}</button>
         <button class="icon-btn danger" data-del-prodi="${p.id}">${ICON.trash}</button>
@@ -998,26 +998,27 @@ function bindProdiRowEvents(){
   qsa('[data-del-prodi]').forEach(b=> b.onclick=()=>{
     const id = b.dataset.delProdi;
     const count = DB.users.filter(u=>u.role==='maba'&&u.prodiId===id).length;
-    confirmDialog('Hapus Prodi', count? `Ada ${count} Masta pada Prodi ini. Data Prodi tetap akan dihapus, namun data Masta tidak terhapus.` : 'Yakin ingin menghapus Prodi ini?', async ()=>{
-      DB.prodi = DB.prodi.filter(p=>p.id!==id); await saveDB('prodi'); toast('Prodi dihapus.','success'); refreshAdminContent();
+    confirmDialog('Hapus Prodi/Kelompok', count? `Ada ${count} Masta pada Prodi/Kelompok ini. Data Prodi/Kelompok tetap akan dihapus, namun data Masta tidak terhapus.` : 'Yakin ingin menghapus Prodi/Kelompok ini?', async ()=>{
+      DB.prodi = DB.prodi.filter(p=>p.id!==id); await saveDB('prodi'); toast('Prodi/Kelompok dihapus.','success'); refreshAdminContent();
     });
   });
 }
 function openProdiForm(existing){
   openModal(`
-    <div class="modal-head"><h3>${existing?'Edit':'Tambah'} Prodi</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="modal-head"><h3>${existing?'Edit':'Tambah'} Prodi/Kelompok</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
     <div class="modal-body">
       <form id="prodi-form">
-        <div class="field"><label>Nama Prodi</label><input name="nama" required value="${existing?esc(existing.nama):''}" placeholder="cth. Manajemen Pendidikan Islam"></div>
+        <div class="field"><label>Nama Prodi/Kelompok</label><input name="nama" required value="${existing?esc(existing.nama):''}" placeholder="cth. Kelompok 1 - Teknik Informatika"></div>
+        <div class="field"><label>Coach</label><input name="coach" value="${existing?esc(existing.coach||''):''}" placeholder="Nama Coach pendamping"></div>
       </form>
     </div>
     <div class="modal-foot"><button class="btn btn-outline" onclick="closeModal()">Batal</button><button class="btn btn-primary" id="prodi-save">Simpan</button></div>`);
   byId('prodi-save').onclick = async ()=>{
     const f = new FormData(byId('prodi-form'));
     const nama = f.get('nama').trim(); if(!nama){ toast('Nama wajib diisi.','error'); return; }
-    if(existing){ existing.nama=nama; }
-    else DB.prodi.push({id:uid(), nama, createdAt:Date.now()});
-    await saveDB('prodi'); closeModal(); toast('Data Prodi tersimpan.','success'); refreshAdminContent();
+    if(existing){ existing.nama=nama; existing.coach=f.get('coach'); }
+    else DB.prodi.push({id:uid(), nama, coach:f.get('coach'), createdAt:Date.now()});
+    await saveDB('prodi'); closeModal(); toast('Data Prodi/Kelompok tersimpan.','success'); refreshAdminContent();
   };
 }
 
@@ -1177,8 +1178,8 @@ function viewMasta(){
     <div class="table-toolbar">
       <input type="search" id="masta-search" placeholder="Cari nama atau NIM..." style="min-width:220px;">
       <select id="masta-filter-prodi"><option value="">Semua Prodi</option>${opts}</select>
-      <select id="masta-filter-kelompok"><option value="">Semua Kelompok</option><option value="__NONE__">⚠ Belum Ditentukan</option>${kelOpts}</select>
-      <select id="masta-filter-coach"><option value="">Semua Coach</option><option value="__NONE__">⚠ Belum Dipilih</option>${coachOpts}</select>
+      <select id="masta-filter-kelompok"><option value="">Semua Kelompok</option>${kelOpts}</select>
+      <select id="masta-filter-coach"><option value="">Semua Coach</option>${coachOpts}</select>
       <div class="spacer"></div>
     </div>
     <div id="masta-table-wrap"></div>
@@ -1188,18 +1189,16 @@ function mastaTableHTML(filter, prodiId, kelompokId, coachId){
   filter=(filter||'').toLowerCase();
   let rows = DB.users.filter(u=>u.role==='maba' && (u.nama.toLowerCase().includes(filter)||u.nim.toLowerCase().includes(filter)));
   if(prodiId) rows = rows.filter(u=>u.prodiId===prodiId);
-  if(kelompokId==='__NONE__') rows = rows.filter(u=>!u.kelompokId);
-  else if(kelompokId) rows = rows.filter(u=>u.kelompokId===kelompokId);
-  if(coachId==='__NONE__') rows = rows.filter(u=>!u.coachId);
-  else if(coachId) rows = rows.filter(u=>u.coachId===coachId);
+  if(kelompokId) rows = rows.filter(u=>u.kelompokId===kelompokId);
+  if(coachId) rows = rows.filter(u=>u.coachId===coachId);
   if(!rows.length) return `<div class="table-empty">Tidak ada data Masta yang cocok.</div>`;
   return `<table><thead><tr><th>NIM</th><th>Nama Masta</th><th>Prodi</th><th>Kelompok</th><th>Coach</th><th>Username</th><th style="text-align:right;">Aksi</th></tr></thead><tbody>
     ${rows.map(u=>`<tr>
       <td>${esc(u.nim)}</td>
       <td><span class="avatar-sm">${initials(u.nama)}</span>${esc(u.nama)}</td>
       <td>${esc(prodiName(u.prodiId))}</td>
-      <td>${u.kelompokId? esc(kelompokName(u.kelompokId)) : '<span class="badge badge-warn">Belum ditentukan</span>'}</td>
-      <td>${u.coachId? esc(coachName(u.coachId)) : '<span class="badge badge-muted">Belum dipilih</span>'}</td>
+      <td>${esc(kelompokName(u.kelompokId))}</td>
+      <td>${esc(coachName(u.coachId))}</td>
       <td>${esc(u.username)}</td>
       <td><div class="row-actions" style="justify-content:flex-end;">
         <button class="icon-btn" title="Lihat Detail" data-detail-masta="${u.id}">${ICON.eye}</button>
@@ -1248,7 +1247,7 @@ function openMastaForm(existing){
           <div class="field"><label>NIM</label><input name="nim" required value="${existing?esc(existing.nim):''}"></div>
           <div class="field"><label>Nama Masta</label><input name="nama" required value="${existing?esc(existing.nama):''}"></div>
         </div>
-        <div class="field"><label>Prodi</label><select name="prodiId" required>${DB.prodi.length?'':'<option value="">Belum ada data Prodi</option>'}${opts}</select></div>
+        <div class="field"><label>Prodi/Kelompok</label><select name="prodiId" required>${DB.prodi.length?'':'<option value="">Belum ada Prodi/Kelompok</option>'}${opts}</select></div>
         <div class="field"><label>Kelompok</label><select name="kelompokId"><option value="">${kelOpts.length?'Belum ditentukan':'Belum ada data Kelompok'}</option>${kelOpts}</select></div>
         <div class="field-row">
           <div class="field"><label>Username</label><input name="username" required value="${existing?esc(existing.username):''}"></div>
@@ -1361,12 +1360,12 @@ function openMastaDetailModal(m){
 let scanState = { active:false, stream:null, paused:false, rafId:null, video:null, canvas:null, ctx:null };
 
 function viewAbsensi(){
-  const opts = `<option value="ALL">Semua Prodi</option>` + DB.prodi.map(p=>`<option value="${p.id}">${esc(p.nama)}</option>`).join('');
+  const opts = `<option value="ALL">Semua Prodi/Kelompok</option>` + DB.prodi.map(p=>`<option value="${p.id}">${esc(p.nama)}</option>`).join('');
   return `
   <div class="page-head"><div><h2>Absensi QR</h2><p>Pindai QR Code Masta secara otomatis untuk mencatat kehadiran.</p></div></div>
   <div style="display:grid;grid-template-columns:340px 1fr;gap:22px;align-items:start;" id="absensi-grid">
     <div class="panel scan-setup">
-      <div class="field"><label>Prodi</label><select id="scan-prodi">${opts}</select></div>
+      <div class="field"><label>Prodi/Kelompok</label><select id="scan-prodi">${opts}</select></div>
       <div class="field"><label>Tanggal</label><input type="date" id="scan-date" value="${todayStr()}"></div>
       <div class="field"><label>Sesi Absensi</label><select id="scan-sesi"><option value="pagi">Pagi</option><option value="siang">Siang</option><option value="sore">Sore</option></select></div>
       <button class="btn btn-brass btn-block" id="btn-start-scan">${ICON.camera} Mulai Absensi</button>
@@ -1375,7 +1374,7 @@ function viewAbsensi(){
     </div>
     <div>
       <div class="scan-stage" id="scan-stage">
-        <div class="scan-idle" id="scan-idle">${ICON.qr}<span>Pilih Prodi, tanggal, dan sesi, lalu tekan "Mulai Absensi".</span></div>
+        <div class="scan-idle" id="scan-idle">${ICON.qr}<span>Pilih Prodi/Kelompok, tanggal, dan sesi, lalu tekan "Mulai Absensi".</span></div>
         <video id="scan-video" playsinline muted class="hidden"></video>
         <div class="scan-frame hidden" id="scan-frame"><div class="corner c1"></div><div class="corner c2"></div><div class="corner c3"></div><div class="corner c4"></div><div class="scan-line"></div></div>
         <div id="scan-result" class="hidden"></div>
@@ -1470,7 +1469,7 @@ async function handleScanResult(payload){
     const mastaId = payload.split(':')[1];
     m = getMasta(mastaId);
     if(!m){ title='Data Tidak Ditemukan'; msg='Masta dengan QR ini tidak terdaftar di sistem.'; }
-    else if(prodiId!=='ALL' && m.prodiId!==prodiId){ title='Prodi Tidak Sesuai'; msg=`${m.nama} bukan anggota ${prodiName(prodiId)}.`; }
+    else if(prodiId!=='ALL' && m.prodiId!==prodiId){ title='Prodi/Kelompok Tidak Sesuai'; msg=`${m.nama} bukan anggota ${prodiName(prodiId)}.`; }
     else{
       const dup = DB.att.find(a=>a.mastaId===m.id && a.tanggal===tanggal && a.sesi===sesi);
       if(dup){ title='Sudah Absen'; msg=`${m.nama} sudah tercatat hadir sesi ${sesiLabel(sesi)} pukul ${dup.jam}.`; }
