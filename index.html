@@ -488,6 +488,22 @@ async function dbSet(sheetName, val){
     throw e;
   }
 }
+async function dbAppend(sheetName, record){
+  if(!sheetsReady()) throw new Error('URL Google Sheets belum diisi.');
+  try{
+    const res = await fetch(window.__sheetsApiUrl, {
+      method:'POST',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({ action:'appendRow', sheet: sheetName, record })
+    });
+    if(!res.ok){ throw new Error('Server merespons status '+res.status); }
+    const data = await res.json();
+    if(!data || !data.ok) throw new Error((data && data.error) || 'Gagal menyimpan ke server.');
+  }catch(e){
+    console.error('sheets append error', sheetName, e);
+    throw e;
+  }
+}
 function fileToBase64(file){
   return new Promise((resolve, reject)=>{
     const reader = new FileReader();
@@ -2105,17 +2121,18 @@ byId('tugas-save').onclick = async ()=>{
       saveBtn.disabled = true; saveBtn.textContent = 'Menyimpan...';
     }
     const now = new Date();
-    DB.tugas.push({
+    const tugasRecord = {
       id:uid(), jenis, kelompokId:STATE.user.kelompokId||'', mastaId:STATE.user.id, pengirimNama, judul,
       deskripsi, link, fileUrl, fileName, tanggal:todayStr(), jam:timeStr(now), createdAt:now.getTime()
-    });
+    };
     try{
-      await saveDB('tugas');
+      await dbAppend('Tugas', tugasRecord);
+      DB.tugas.push(tugasRecord);
       closeModal(); toast('Tugas berhasil dikirim.','success');
       refreshMabaContent();
     }catch(e){
-      DB.tugas.pop();
-      toast('Tugas GAGAL tersimpan ke server. Coba kirim ulang.','error');
+      console.error('kirim tugas error', e);
+      toast('Tugas GAGAL tersimpan ke server: '+(e&&e.message?e.message:'coba lagi.'),'error');
     }finally{
       saveBtn.disabled = false; saveBtn.textContent = originalText;
     }
