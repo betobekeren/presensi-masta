@@ -447,15 +447,15 @@ const LOGO_SRC = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABc
 
 const K = {
   users:'Users', prodi:'Prodi', kelompok:'Kelompok', att:'Absensi', izin:'Izin', sakit:'Sakit',
-  backup:'Backup', session:'am_session'
+  tugas:'Tugas', backup:'Backup', session:'am_session'
 };
 
-let DB = { users:[], prodi:[], kelompok:[], att:[], izin:[], sakit:[], backup:[] };
+let DB = { users:[], prodi:[], kelompok:[], att:[], izin:[], sakit:[], tugas:[], backup:[] };
 let STATE = { user:null, route:'dashboard', sidebarOpen:false, scanSession:null,
   dashKelompok:'', dashCoach:'', izinSakitDefaultTab:null,
   mastaFilterKelompok:'', mastaFilterCoach:'', coachDetailId:null,
   izinSakitKelompok:'', izinSakitCoach:'',
-  lapKelompok:'', lapCoach:'' };
+  lapKelompok:'', lapCoach:'', tugasFilterKelompok:'', tugasFilterJenis:'' };
 
 /* ---------- storage helpers (Google Sheets via Apps Script) ---------- */
 function sheetsReady(){
@@ -508,12 +508,16 @@ async function saveDB(part){
   const map = {users:K.users, prodi:K.prodi, kelompok:K.kelompok, att:K.att, izin:K.izin, sakit:K.sakit, backup:K.backup};
   await dbSet(map[part], DB[part]);
 }
+async function saveDB(part){
+  const map = {users:K.users, prodi:K.prodi, kelompok:K.kelompok, att:K.att, izin:K.izin, sakit:K.sakit, tugas:K.tugas, backup:K.backup};
+  await dbSet(map[part], DB[part]);
+}
 async function loadAllDB(){
-  const [users,prodi,kelompok,att,izin,sakit,backup] = await Promise.all([
+  const [users,prodi,kelompok,att,izin,sakit,tugas,backup] = await Promise.all([
     dbGet(K.users, []), dbGet(K.prodi, []), dbGet(K.kelompok, []), dbGet(K.att, []),
-    dbGet(K.izin, []), dbGet(K.sakit, []), dbGet(K.backup, [])
+    dbGet(K.izin, []), dbGet(K.sakit, []), dbGet(K.tugas, []), dbGet(K.backup, [])
   ]);
-  DB = {users,prodi,kelompok,att,izin,sakit,backup};
+  DB = {users,prodi,kelompok,att,izin,sakit,tugas,backup};
 }
 /* ---------- sesi login (disimpan lokal per HP, bukan di server) ---------- */
 function sessionGet(){
@@ -707,6 +711,7 @@ const ICON = {
   camera:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z"/><circle cx="12" cy="13" r="3.5"/></svg>',
   medkit:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2M12 11v6M9 14h6"/></svg>',
   cal:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg>',
+  upload:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4m0 0 4 4m-4-4-4 4M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>',
 };
 
 /* ============================================================
@@ -827,6 +832,7 @@ const ADMIN_NAV = [
   {id:'masta', label:'Data Masta', icon:ICON.users},
   {id:'absensi', label:'Absensi QR', icon:ICON.qr},
   {id:'izinsakit', label:'Izin & Sakit', icon:ICON.medkit},
+  {id:'tugas', label:'Tugas Kelompok', icon:ICON.upload},
   {id:'laporan', label:'Laporan', icon:ICON.report},
   {id:'akun', label:'Manajemen Akun', icon:ICON.vault},
 ];
@@ -867,6 +873,7 @@ function renderAdminContent(){
     case 'masta': return viewMasta();
     case 'absensi': return viewAbsensi();
     case 'izinsakit': return viewIzinSakit(true, STATE.izinSakitDefaultTab||'izin');
+    case 'tugas': return viewTugasAdmin();
     case 'laporan': return viewLaporan();
     case 'akun': return viewAkun();
     default: return viewDashboard();
@@ -891,6 +898,7 @@ function bindContentEvents(){
     case 'masta': bindMastaEvents(); break;
     case 'absensi': bindAbsensiEvents(); break;
     case 'izinsakit': bindIzinSakitEvents(true); break;
+    case 'tugas': bindTugasAdminEvents(); break;
     case 'laporan': bindLaporanEvents(); break;
     case 'akun': bindAkunEvents(); break;
   }
@@ -1939,12 +1947,157 @@ function openBackupForm(){
   };
 }
 
+   /* ============================================================
+   TUGAS KELOMPOK
+   ============================================================ */
+function viewTugasAdmin(){
+  const kelOpts = DB.kelompok.map(k=>`<option value="${k.id}" ${STATE.tugasFilterKelompok===k.id?'selected':''}>${esc(k.nama)}</option>`).join('');
+  return `
+  <div class="page-head"><div><h2>Tugas</h2><p>Pantau tugas yang dikirim per Kelompok maupun perorangan.</p></div></div>
+  <div class="table-toolbar no-print" style="margin-bottom:16px;padding:0;border:none;">
+    <select id="tugas-filter-jenis">
+      <option value="">Semua Jenis</option>
+      <option value="kelompok" ${STATE.tugasFilterJenis==='kelompok'?'selected':''}>Kelompok</option>
+      <option value="individu" ${STATE.tugasFilterJenis==='individu'?'selected':''}>Individu</option>
+    </select>
+    <select id="tugas-filter-kelompok"><option value="">Semua Kelompok</option>${kelOpts}</select>
+    ${(STATE.tugasFilterKelompok||STATE.tugasFilterJenis)? `<button class="btn btn-outline btn-sm" id="tugas-filter-reset">Reset Filter</button>`:''}
+  </div>
+  <div id="tugas-admin-list"></div>`;
+}
+function tugasAdminListHTML(){
+  let rows = [...DB.tugas];
+  if(STATE.tugasFilterKelompok) rows = rows.filter(t=>t.kelompokId===STATE.tugasFilterKelompok);
+  if(STATE.tugasFilterJenis) rows = rows.filter(t=>(t.jenis||'kelompok')===STATE.tugasFilterJenis);
+  rows.sort((a,b)=>b.createdAt-a.createdAt);
+  if(!rows.length) return `<div class="table-card"><div class="table-empty">Belum ada tugas yang dikirim.</div></div>`;
+  return `<div class="table-card"><table><thead><tr><th>Jenis</th><th>Kelompok</th><th>Judul Tugas</th><th>Pengirim</th><th>Tanggal</th><th>File</th><th style="text-align:right;">Aksi</th></tr></thead><tbody>
+    ${rows.map(t=>{
+      const jenis = t.jenis||'kelompok';
+      return `<tr>
+      <td><span class="badge ${jenis==='individu'?'badge-brass':'badge-success'}">${jenis==='individu'?'Individu':'Kelompok'}</span></td>
+      <td><b>${esc(kelompokName(t.kelompokId))}</b></td>
+      <td>${esc(t.judul)}${t.deskripsi?`<div style="color:var(--muted);font-size:12px;margin-top:2px;">${esc(t.deskripsi)}</div>`:''}</td>
+      <td>${esc(t.pengirimNama)}</td>
+      <td>${fmtDateHuman(t.tanggal)} · ${esc(t.jam||'')}</td>
+      <td>${t.fileUrl? `<a href="${esc(t.fileUrl)}" target="_blank" rel="noopener" class="badge badge-brass">📎 ${esc(t.fileName||'Lihat File')}</a>` : '<span class="badge badge-muted">Tanpa file</span>'}</td>
+      <td><div class="row-actions" style="justify-content:flex-end;">
+        <button class="icon-btn danger" title="Hapus" data-del-tugas="${t.id}">${ICON.trash}</button>
+      </div></td>
+    </tr>`;
+    }).join('')}
+  </tbody></table></div>`;
+}
+function bindTugasAdminEvents(){
+  const wrap = byId('tugas-admin-list');
+  const refresh = ()=>{ wrap.innerHTML = tugasAdminListHTML(); bindRows(); };
+  function bindRows(){
+    qsa('[data-del-tugas]').forEach(b=> b.onclick=()=>{
+      confirmDialog('Hapus Tugas','Yakin ingin menghapus tugas yang dikirim ini?', async ()=>{
+        DB.tugas = DB.tugas.filter(t=>t.id!==b.dataset.delTugas);
+        await saveDB('tugas'); toast('Tugas dihapus.','success'); refreshAdminContent();
+      });
+    });
+  }
+  refresh();
+  const jf = byId('tugas-filter-jenis'); if(jf) jf.onchange = e=>{ STATE.tugasFilterJenis = e.target.value; refreshAdminContent(); };
+  const kf = byId('tugas-filter-kelompok'); if(kf) kf.onchange = e=>{ STATE.tugasFilterKelompok = e.target.value; refreshAdminContent(); };
+  const rb = byId('tugas-filter-reset'); if(rb) rb.onclick = ()=>{ STATE.tugasFilterKelompok=''; STATE.tugasFilterJenis=''; refreshAdminContent(); };
+}
+
+function tugasCardHTML(t){
+  return `
+    <div class="detail-card">
+      <div style="width:38px;height:38px;border-radius:10px;background:var(--brass-dim);color:#8a621f;display:flex;align-items:center;justify-content:center;">${ICON.upload}</div>
+      <div style="flex:1;min-width:0;">
+        <div style="font-weight:700;font-size:13.5px;">${esc(t.judul)}</div>
+        <div style="font-size:12px;color:var(--muted);">Dikirim oleh ${esc(t.pengirimNama)} · ${fmtDateHuman(t.tanggal)}</div>
+        ${t.fileUrl? `<a href="${esc(t.fileUrl)}" target="_blank" rel="noopener" class="badge badge-brass" style="margin-top:6px;display:inline-block;">📎 ${esc(t.fileName||'Lihat File')}</a>`:''}
+      </div>
+    </div>`;
+}
+function viewTugasMaba(){
+  const u = STATE.user;
+  const kelompokTugas = DB.tugas.filter(t=> u.kelompokId && t.kelompokId===u.kelompokId && (t.jenis||'kelompok')==='kelompok').sort((a,b)=>b.createdAt-a.createdAt);
+  const individuTugas = DB.tugas.filter(t=> t.mastaId===u.id && t.jenis==='individu').sort((a,b)=>b.createdAt-a.createdAt);
+  return `
+  <div class="section-title">Tugas Individu Saya</div>
+  <button class="btn btn-brass btn-block" id="btn-add-tugas-individu" style="margin-bottom:16px;">${ICON.upload} Kirim Tugas Individu</button>
+  ${individuTugas.length ? individuTugas.map(tugasCardHTML).join('') : `<div class="empty-state">${ICON.upload}<p>Kamu belum mengirim tugas individu.</p></div>`}
+
+  <div class="section-title" style="margin-top:24px;">Tugas Kelompok Saya</div>
+  ${!u.kelompokId ? `<div class="panel" style="margin-bottom:14px;"><p class="field-hint" style="margin:0;">Kamu belum memilih Kelompok. Atur di menu Profil terlebih dahulu supaya bisa mengirim tugas kelompok.</p></div>` : ''}
+  <button class="btn btn-outline btn-block" id="btn-add-tugas-kelompok" ${u.kelompokId?'':'disabled'} style="margin-bottom:16px;">${ICON.upload} Kirim Tugas Kelompok</button>
+  ${kelompokTugas.length ? kelompokTugas.map(tugasCardHTML).join('') : `<div class="empty-state">${ICON.upload}<p>Kelompokmu belum mengirim tugas.</p></div>`}
+  `;
+}
+function bindTugasMabaEvents(){
+  const bi = byId('btn-add-tugas-individu'); if(bi) bi.onclick = ()=> openTugasForm('individu');
+  const bk = byId('btn-add-tugas-kelompok'); if(bk) bk.onclick = ()=> openTugasForm('kelompok');
+}
+function openTugasForm(jenis){
+  const u = STATE.user;
+  const isIndividu = jenis==='individu';
+  openModal(`
+    <div class="modal-head"><h3>${isIndividu?'Kirim Tugas Individu':'Kirim Tugas Kelompok'}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="modal-body">
+      <form id="tugas-form">
+        ${isIndividu
+          ? `<div class="field"><label>Pengirim</label><input value="${esc(u.nama)} (${esc(u.nim)})" disabled></div>`
+          : `<div class="field"><label>Kelompok</label><input value="${esc(kelompokName(u.kelompokId))}" disabled></div>
+             <div class="field"><label>Nama Pengirim</label><input name="pengirimNama" required value="${esc(u.nama)}" placeholder="Nama perwakilan/ketua kelompok"></div>`}
+        <div class="field"><label>Judul Tugas</label><input name="judul" required placeholder="cth. Tugas Resume Materi Hari 1"></div>
+        <div class="field"><label>Keterangan (opsional)</label><textarea name="deskripsi" rows="3" placeholder="Catatan tambahan"></textarea></div>
+        <div class="field">
+          <label>File Tugas (foto/dokumen)</label>
+          <input type="file" name="tugasFile" id="tugas-file-input" accept="image/*,.pdf,.doc,.docx" capture="environment">
+          <div class="field-hint">Boleh foto langsung dari kamera, PDF, atau dokumen Word. Maks 5MB.</div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-foot"><button class="btn btn-outline" onclick="closeModal()">Batal</button><button class="btn btn-primary" id="tugas-save">Kirim</button></div>`);
+  byId('tugas-save').onclick = async ()=>{
+    const f = new FormData(byId('tugas-form'));
+    const pengirimNama = isIndividu ? u.nama : (f.get('pengirimNama')||'').trim();
+    const judul = (f.get('judul')||'').trim();
+    if(!pengirimNama || !judul){ toast('Judul tugas wajib diisi.','error'); return; }
+    const fileInput = byId('tugas-file-input');
+    const file = fileInput && fileInput.files && fileInput.files[0];
+    let fileUrl='', fileName='';
+    const saveBtn = byId('tugas-save');
+    const originalText = saveBtn.textContent;
+    if(file){
+      if(file.size > 5*1024*1024){ toast('Ukuran file maksimal 5MB.','error'); return; }
+      saveBtn.disabled = true; saveBtn.textContent = 'Mengunggah file...';
+      try{
+        fileUrl = await uploadFileToDrive(file);
+        fileName = file.name;
+      }catch(e){
+        console.error('upload tugas error', e);
+        toast('Gagal mengunggah file. Coba lagi.','error');
+        saveBtn.disabled = false; saveBtn.textContent = originalText;
+        return;
+      }
+    }
+    const now = new Date();
+    DB.tugas.push({
+      id:uid(), jenis, kelompokId:STATE.user.kelompokId||'', mastaId:STATE.user.id, pengirimNama, judul,
+      deskripsi:f.get('deskripsi')||'', fileUrl, fileName, tanggal:todayStr(), jam:timeStr(now), createdAt:now.getTime()
+    });
+    await saveDB('tugas');
+    saveBtn.disabled = false; saveBtn.textContent = originalText;
+    closeModal(); toast('Tugas berhasil dikirim.','success');
+    refreshMabaContent();
+  };
+}
+
 /* ============================================================
    MABA SHELL
    ============================================================ */
 const MABA_NAV = [
   {id:'beranda', label:'Beranda', icon:ICON.home},
   {id:'riwayat', label:'Riwayat', icon:ICON.history},
+  {id:'tugas', label:'Tugas', icon:ICON.upload},
   {id:'izinsakit', label:'Izin/Sakit', icon:ICON.medkit},
   {id:'profil', label:'Profil', icon:ICON.user},
 ];
@@ -1968,6 +2121,7 @@ function renderMabaContent(){
   switch(STATE.route){
     case 'beranda': return viewMabaBeranda();
     case 'riwayat': return viewMabaRiwayat();
+    case 'tugas': return viewTugasMaba();
     case 'izinsakit': return viewIzinSakit(false);
     case 'profil': return viewMabaProfil();
     default: return viewMabaBeranda();
@@ -1982,6 +2136,7 @@ function bindMabaEvents(){
 function bindMabaContentEvents(){
   switch(STATE.route){
     case 'beranda': renderMabaQR(); break;
+    case 'tugas': bindTugasMabaEvents(); break;
     case 'izinsakit': bindIzinSakitEvents(false); break;
     case 'profil': bindMabaProfilEvents(); break;
   }
