@@ -2026,7 +2026,12 @@ function bindTugasAdminEvents(){
   const rb = byId('tugas-filter-reset'); if(rb) rb.onclick = ()=>{ STATE.tugasFilterKelompok=''; STATE.tugasFilterJenis=''; refreshAdminContent(); };
 }
 
-function tugasCardHTML(t){
+function tugasCardHTML(t, canManage){
+  const actions = canManage ? `
+    <div class="row-actions" style="margin-left:auto;">
+      <button class="icon-btn" title="Edit" data-edit-tugas="${t.id}">${ICON.edit}</button>
+      <button class="icon-btn danger" title="Hapus" data-del-tugas-maba="${t.id}">${ICON.trash}</button>
+    </div>` : '';
   return `
     <div class="detail-card">
       <div style="width:38px;height:38px;border-radius:10px;background:var(--brass-dim);color:#8a621f;display:flex;align-items:center;justify-content:center;">${ICON.upload}</div>
@@ -2039,6 +2044,7 @@ function tugasCardHTML(t){
           ${t.link? `<a href="${esc(t.link)}" target="_blank" rel="noopener" class="badge badge-brass">🔗 Buka Link</a>`:''}
         </div>
       </div>
+      ${actions}
     </div>`;
 }
 function viewTugasMaba(){
@@ -2048,60 +2054,85 @@ function viewTugasMaba(){
   return `
   <div class="section-title">Tugas Individu Saya</div>
   <button class="btn btn-brass btn-block" id="btn-add-tugas-individu" style="margin-bottom:16px;">${ICON.upload} Kirim Tugas Individu</button>
-  ${individuTugas.length ? individuTugas.map(tugasCardHTML).join('') : `<div class="empty-state">${ICON.upload}<p>Kamu belum mengirim tugas individu.</p></div>`}
+  ${individuTugas.length ? individuTugas.map(t=>tugasCardHTML(t, true)).join('') : `<div class="empty-state">${ICON.upload}<p>Kamu belum mengirim tugas individu.</p></div>`}
 
   <div class="section-title" style="margin-top:24px;">Tugas Kelompok Saya</div>
   ${!u.kelompokId ? `<div class="panel" style="margin-bottom:14px;"><p class="field-hint" style="margin:0;">Kamu belum memilih Kelompok. Atur di menu Profil terlebih dahulu supaya bisa mengirim tugas kelompok.</p></div>` : ''}
   <button class="btn btn-outline btn-block" id="btn-add-tugas-kelompok" ${u.kelompokId?'':'disabled'} style="margin-bottom:16px;">${ICON.upload} Kirim Tugas Kelompok</button>
-  ${kelompokTugas.length ? kelompokTugas.map(tugasCardHTML).join('') : `<div class="empty-state">${ICON.upload}<p>Kelompokmu belum mengirim tugas.</p></div>`}
+  ${kelompokTugas.length ? kelompokTugas.map(t=>tugasCardHTML(t, t.mastaId===u.id)).join('') : `<div class="empty-state">${ICON.upload}<p>Kelompokmu belum mengirim tugas.</p></div>`}
   `;
 }
 function bindTugasMabaEvents(){
   const bi = byId('btn-add-tugas-individu'); if(bi) bi.onclick = ()=> openTugasForm('individu');
   const bk = byId('btn-add-tugas-kelompok'); if(bk) bk.onclick = ()=> openTugasForm('kelompok');
+
+  qsa('[data-edit-tugas]').forEach(b=> b.onclick=()=>{
+    const t = DB.tugas.find(x=>x.id===b.dataset.editTugas);
+    if(t) openTugasForm(t.jenis||'kelompok', t);
+  });
+  qsa('[data-del-tugas-maba]').forEach(b=> b.onclick=()=>{
+    const id = b.dataset.delTugasMaba;
+    confirmDialog('Hapus Tugas','Yakin ingin menghapus tugas yang sudah dikirim ini? Tindakan ini tidak bisa dibatalkan.', async ()=>{
+      DB.tugas = DB.tugas.filter(t=>t.id!==id);
+      try{
+        await saveDB('tugas');
+        toast('Tugas berhasil dihapus.','success');
+      }catch(e){
+        console.error('hapus tugas error', e);
+        toast('Gagal menghapus tugas di server. Coba lagi.','error');
+      }
+      refreshMabaContent();
+    });
+  });
 }
-function openTugasForm(jenis){
+function openTugasForm(jenis, existing){
   const u = STATE.user;
   const isIndividu = jenis==='individu';
   openModal(`
-    <div class="modal-head"><h3>${isIndividu?'Kirim Tugas Individu':'Kirim Tugas Kelompok'}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="modal-head"><h3>${existing ? 'Edit Tugas' : (isIndividu?'Kirim Tugas Individu':'Kirim Tugas Kelompok')}</h3><button class="icon-btn" onclick="closeModal()">✕</button></div>
     <div class="modal-body">
       <form id="tugas-form">
         ${isIndividu
           ? `<div class="field"><label>Pengirim</label><input value="${esc(u.nama)} (${esc(u.nim)})" disabled></div>`
           : `<div class="field"><label>Kelompok</label><input value="${esc(kelompokName(u.kelompokId))}" disabled></div>
-             <div class="field"><label>Nama Pengirim</label><input name="pengirimNama" required value="${esc(u.nama)}" placeholder="Nama perwakilan/ketua kelompok"></div>`}
-        <div class="field"><label>Judul Tugas</label><input name="judul" required placeholder="cth. Tugas Resume Materi Hari 1"></div>
-        <div class="field"><label>Keterangan (opsional)</label><textarea name="deskripsi" rows="3" placeholder="Catatan tambahan"></textarea></div>
+             <div class="field"><label>Nama Pengirim</label><input name="pengirimNama" required value="${esc(existing?existing.pengirimNama:u.nama)}" placeholder="Nama perwakilan/ketua kelompok"></div>`}
+        <div class="field"><label>Judul Tugas</label><input name="judul" required value="${existing?esc(existing.judul):''}" placeholder="cth. Tugas Resume Materi Hari 1"></div>
+        <div class="field"><label>Keterangan (opsional)</label><textarea name="deskripsi" rows="3" placeholder="Catatan tambahan">${existing?esc(existing.deskripsi||''):''}</textarea></div>
          <div class="field">
           <label>Link (opsional)</label>
-          <input type="url" name="tugasLink" id="tugas-link-input" placeholder="cth. link video di Instagram/YouTube/Drive">
+          <input type="url" name="tugasLink" id="tugas-link-input" value="${existing?esc(existing.link||''):''}" placeholder="cth. link video di Instagram/YouTube/Drive">
           <div class="field-hint">Isi kalau tugasnya berupa link, misalnya video perkenalan yang diupload di IG.</div>
         </div>
         <div class="field">
           <label>File Tugas (opsional)</label>
           <input type="file" name="tugasFile" id="tugas-file-input" accept="image/*,application/pdf,.doc,.docx,.ppt,.pptx">
-          <div class="field-hint">Format bebas: screenshot, foto, atau PDF. Maks 5MB. Boleh dikosongkan kalau kirim link atau teks saja.</div>
+          <div class="field-hint">${existing && existing.fileUrl ? `File saat ini: <a href="${esc(existing.fileUrl)}" target="_blank" rel="noopener">${esc(existing.fileName||'Lihat file')}</a>. Pilih file baru untuk menggantinya, atau biarkan kosong untuk tetap memakai file ini.` : 'Format bebas: screenshot, foto, atau PDF. Maks 5MB. Boleh dikosongkan kalau kirim link atau teks saja.'}</div>
         </div>
       </form>
     </div>
-    <div class="modal-foot"><button class="btn btn-outline" onclick="closeModal()">Batal</button><button class="btn btn-primary" id="tugas-save">Kirim</button></div>`);
-byId('tugas-save').onclick = async ()=>{
+    <div class="modal-foot"><button class="btn btn-outline" onclick="closeModal()">Batal</button><button class="btn btn-primary" id="tugas-save">${existing?'Simpan Perubahan':'Kirim'}</button></div>`);
+
+  byId('tugas-save').onclick = async ()=>{
     const f = new FormData(byId('tugas-form'));
     const pengirimNama = isIndividu ? u.nama : (f.get('pengirimNama')||'').trim();
     const judul = (f.get('judul')||'').trim();
     const deskripsi = (f.get('deskripsi')||'').trim();
     const link = (f.get('tugasLink')||'').trim();
     if(!pengirimNama || !judul){ toast('Judul tugas wajib diisi.','error'); return; }
+
     const fileInput = byId('tugas-file-input');
     const file = fileInput && fileInput.files && fileInput.files[0];
-    if(!file && !link && !deskripsi){
+    const hasExistingFile = existing && existing.fileUrl;
+    if(!file && !link && !deskripsi && !hasExistingFile){
       toast('Isi minimal salah satu: file, link, atau keterangan.','error');
       return;
     }
-    let fileUrl='', fileName='';
+
+    let fileUrl = existing ? (existing.fileUrl||'') : '';
+    let fileName = existing ? (existing.fileName||'') : '';
     const saveBtn = byId('tugas-save');
     const originalText = saveBtn.textContent;
+
     if(file){
       if(file.size > 5*1024*1024){ toast('Ukuran file maksimal 5MB. Coba screenshot/kompres ulang lebih kecil.','error'); return; }
       saveBtn.disabled = true; saveBtn.textContent = 'Mengunggah file...';
@@ -2114,25 +2145,45 @@ byId('tugas-save').onclick = async ()=>{
         saveBtn.disabled = false; saveBtn.textContent = originalText;
         return;
       }
-      saveBtn.textContent = 'Menyimpan...';
+      saveBtn.textContent = existing ? 'Menyimpan perubahan...' : 'Menyimpan...';
     } else {
-      saveBtn.disabled = true; saveBtn.textContent = 'Menyimpan...';
+      saveBtn.disabled = true; saveBtn.textContent = existing ? 'Menyimpan perubahan...' : 'Menyimpan...';
     }
-    const now = new Date();
-    const tugasRecord = {
-      id:uid(), jenis, kelompokId:STATE.user.kelompokId||'', mastaId:STATE.user.id, pengirimNama, judul,
-      deskripsi, link, fileUrl, fileName, tanggal:todayStr(), jam:timeStr(now), createdAt:now.getTime()
-    };
-    try{
-      await dbAppend('Tugas', tugasRecord);
-      DB.tugas.push(tugasRecord);
-      closeModal(); toast('Tugas berhasil dikirim.','success');
-      refreshMabaContent();
-    }catch(e){
-      console.error('kirim tugas error', e);
-      toast('Tugas GAGAL tersimpan ke server: '+(e&&e.message?e.message:'coba lagi.'),'error');
-    }finally{
-      saveBtn.disabled = false; saveBtn.textContent = originalText;
+
+    if(existing){
+      existing.pengirimNama = pengirimNama;
+      existing.judul = judul;
+      existing.deskripsi = deskripsi;
+      existing.link = link;
+      existing.fileUrl = fileUrl;
+      existing.fileName = fileName;
+      try{
+        await saveDB('tugas');
+        closeModal(); toast('Perubahan tugas berhasil disimpan.','success');
+        refreshMabaContent();
+      }catch(e){
+        console.error('update tugas error', e);
+        toast('Gagal menyimpan perubahan ke server: '+(e&&e.message?e.message:'coba lagi.'),'error');
+      }finally{
+        saveBtn.disabled = false; saveBtn.textContent = originalText;
+      }
+    }else{
+      const now = new Date();
+      const tugasRecord = {
+        id:uid(), jenis, kelompokId:STATE.user.kelompokId||'', mastaId:STATE.user.id, pengirimNama, judul,
+        deskripsi, link, fileUrl, fileName, tanggal:todayStr(), jam:timeStr(now), createdAt:now.getTime()
+      };
+      try{
+        await dbAppend('Tugas', tugasRecord);
+        DB.tugas.push(tugasRecord);
+        closeModal(); toast('Tugas berhasil dikirim.','success');
+        refreshMabaContent();
+      }catch(e){
+        console.error('kirim tugas error', e);
+        toast('Tugas GAGAL tersimpan ke server: '+(e&&e.message?e.message:'coba lagi.'),'error');
+      }finally{
+        saveBtn.disabled = false; saveBtn.textContent = originalText;
+      }
     }
   };
 }
