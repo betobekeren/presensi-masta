@@ -116,8 +116,7 @@ a{color:inherit;}
 .btn-ghost:hover{color:var(--ink);}
 .btn-sm{padding:7px 12px;font-size:13px;border-radius:8px;}
 .btn-block{width:100%;}
-.btn:disabled{opacity:.5;cursor:not-allowed;transform:none;}
-
+.btn svg{width:16px;height:16px;flex-shrink:0;}
 .field{margin-bottom:16px;}
 .field label{display:block;font-size:12.5px;font-weight:600;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em;}
 .field input,.field select,.field textarea{
@@ -475,14 +474,19 @@ async function dbGet(sheetName, def){
   }catch(e){ console.error('sheets get error', sheetName, e); toast('Gagal memuat data dari server.','error'); return def; }
 }
 async function dbSet(sheetName, val){
-  if(!sheetsReady()) return;
+  if(!sheetsReady()) throw new Error('URL Google Sheets belum diisi.');
   try{
-    await fetch(window.__sheetsApiUrl, {
+    const res = await fetch(window.__sheetsApiUrl, {
       method:'POST',
       headers:{'Content-Type':'text/plain;charset=utf-8'},
       body: JSON.stringify({ sheet: sheetName, data: val })
     });
-  }catch(e){ console.error('sheets set error', sheetName, e); toast('Gagal menyimpan data ke server.','error'); }
+    if(!res.ok){ throw new Error('Server merespons status '+res.status); }
+  }catch(e){
+    console.error('sheets set error', sheetName, e);
+    toast('Gagal menyimpan data ke server. Periksa koneksi internet.','error');
+    throw e;
+  }
 }
 function fileToBase64(file){
   return new Promise((resolve, reject)=>{
@@ -1980,8 +1984,11 @@ function tugasAdminListHTML(){
       <td>${esc(t.judul)}${t.deskripsi?`<div style="color:var(--muted);font-size:12px;margin-top:2px;">${esc(t.deskripsi)}</div>`:''}</td>
       <td>${esc(t.pengirimNama)}</td>
       <td>${fmtDateHuman(t.tanggal)} · ${esc(t.jam||'')}</td>
-      <td>${t.fileUrl? `<a href="${esc(t.fileUrl)}" target="_blank" rel="noopener" class="badge badge-brass">📎 ${esc(t.fileName||'Lihat File')}</a>` : '<span class="badge badge-muted">Tanpa file</span>'}</td>
-      <td><div class="row-actions" style="justify-content:flex-end;">
+<td>
+        ${t.fileUrl? `<a href="${esc(t.fileUrl)}" target="_blank" rel="noopener" class="badge badge-brass">📎 ${esc(t.fileName||'File')}</a>` : ''}
+        ${t.link? ` <a href="${esc(t.link)}" target="_blank" rel="noopener" class="badge badge-brass">🔗 Link</a>` : ''}
+        ${(!t.fileUrl && !t.link)? '<span class="badge badge-muted">Teks saja</span>' : ''}
+      </td>      <td><div class="row-actions" style="justify-content:flex-end;">
         <button class="icon-btn danger" title="Hapus" data-del-tugas="${t.id}">${ICON.trash}</button>
       </div></td>
     </tr>`;
@@ -2012,7 +2019,11 @@ function tugasCardHTML(t){
       <div style="flex:1;min-width:0;">
         <div style="font-weight:700;font-size:13.5px;">${esc(t.judul)}</div>
         <div style="font-size:12px;color:var(--muted);">Dikirim oleh ${esc(t.pengirimNama)} · ${fmtDateHuman(t.tanggal)}</div>
-        ${t.fileUrl? `<a href="${esc(t.fileUrl)}" target="_blank" rel="noopener" class="badge badge-brass" style="margin-top:6px;display:inline-block;">📎 ${esc(t.fileName||'Lihat File')}</a>`:''}
+        ${t.deskripsi? `<div style="font-size:12px;margin-top:4px;">${esc(t.deskripsi)}</div>`:''}
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">
+          ${t.fileUrl? `<a href="${esc(t.fileUrl)}" target="_blank" rel="noopener" class="badge badge-brass">📎 ${esc(t.fileName||'Lihat File')}</a>`:''}
+          ${t.link? `<a href="${esc(t.link)}" target="_blank" rel="noopener" class="badge badge-brass">🔗 Buka Link</a>`:''}
+        </div>
       </div>
     </div>`;
 }
@@ -2048,48 +2059,67 @@ function openTugasForm(jenis){
              <div class="field"><label>Nama Pengirim</label><input name="pengirimNama" required value="${esc(u.nama)}" placeholder="Nama perwakilan/ketua kelompok"></div>`}
         <div class="field"><label>Judul Tugas</label><input name="judul" required placeholder="cth. Tugas Resume Materi Hari 1"></div>
         <div class="field"><label>Keterangan (opsional)</label><textarea name="deskripsi" rows="3" placeholder="Catatan tambahan"></textarea></div>
+         <div class="field">
+          <label>Link (opsional)</label>
+          <input type="url" name="tugasLink" id="tugas-link-input" placeholder="cth. link video di Instagram/YouTube/Drive">
+          <div class="field-hint">Isi kalau tugasnya berupa link, misalnya video perkenalan yang diupload di IG.</div>
+        </div>
         <div class="field">
-          <label>File Tugas (foto/dokumen)</label>
-          <input type="file" name="tugasFile" id="tugas-file-input" accept="image/*,.pdf,.doc,.docx" capture="environment">
-          <div class="field-hint">Boleh foto langsung dari kamera, PDF, atau dokumen Word. Maks 5MB.</div>
+          <label>File Tugas (opsional)</label>
+          <input type="file" name="tugasFile" id="tugas-file-input" accept="image/*,application/pdf,.doc,.docx,.ppt,.pptx">
+          <div class="field-hint">Format bebas: screenshot, foto, atau PDF. Maks 5MB. Boleh dikosongkan kalau kirim link atau teks saja.</div>
         </div>
       </form>
     </div>
     <div class="modal-foot"><button class="btn btn-outline" onclick="closeModal()">Batal</button><button class="btn btn-primary" id="tugas-save">Kirim</button></div>`);
-  byId('tugas-save').onclick = async ()=>{
+byId('tugas-save').onclick = async ()=>{
     const f = new FormData(byId('tugas-form'));
     const pengirimNama = isIndividu ? u.nama : (f.get('pengirimNama')||'').trim();
     const judul = (f.get('judul')||'').trim();
+    const deskripsi = (f.get('deskripsi')||'').trim();
+    const link = (f.get('tugasLink')||'').trim();
     if(!pengirimNama || !judul){ toast('Judul tugas wajib diisi.','error'); return; }
     const fileInput = byId('tugas-file-input');
     const file = fileInput && fileInput.files && fileInput.files[0];
+    if(!file && !link && !deskripsi){
+      toast('Isi minimal salah satu: file, link, atau keterangan.','error');
+      return;
+    }
     let fileUrl='', fileName='';
     const saveBtn = byId('tugas-save');
     const originalText = saveBtn.textContent;
     if(file){
-      if(file.size > 5*1024*1024){ toast('Ukuran file maksimal 5MB.','error'); return; }
+      if(file.size > 5*1024*1024){ toast('Ukuran file maksimal 5MB. Coba screenshot/kompres ulang lebih kecil.','error'); return; }
       saveBtn.disabled = true; saveBtn.textContent = 'Mengunggah file...';
       try{
         fileUrl = await uploadFileToDrive(file, 'Tugas Masta - Absensi Masta');
         fileName = file.name;
       }catch(e){
         console.error('upload tugas error', e);
-        toast('Gagal mengunggah file. Coba lagi.','error');
+        toast('Gagal mengunggah file: '+(e&&e.message?e.message:'periksa koneksi internet.'),'error');
         saveBtn.disabled = false; saveBtn.textContent = originalText;
         return;
       }
+      saveBtn.textContent = 'Menyimpan...';
+    } else {
+      saveBtn.disabled = true; saveBtn.textContent = 'Menyimpan...';
     }
     const now = new Date();
     DB.tugas.push({
       id:uid(), jenis, kelompokId:STATE.user.kelompokId||'', mastaId:STATE.user.id, pengirimNama, judul,
-      deskripsi:f.get('deskripsi')||'', fileUrl, fileName, tanggal:todayStr(), jam:timeStr(now), createdAt:now.getTime()
+      deskripsi, link, fileUrl, fileName, tanggal:todayStr(), jam:timeStr(now), createdAt:now.getTime()
     });
-    await saveDB('tugas');
-    saveBtn.disabled = false; saveBtn.textContent = originalText;
-    closeModal(); toast('Tugas berhasil dikirim.','success');
-    refreshMabaContent();
+    try{
+      await saveDB('tugas');
+      closeModal(); toast('Tugas berhasil dikirim.','success');
+      refreshMabaContent();
+    }catch(e){
+      DB.tugas.pop();
+      toast('Tugas GAGAL tersimpan ke server. Coba kirim ulang.','error');
+    }finally{
+      saveBtn.disabled = false; saveBtn.textContent = originalText;
+    }
   };
-}
 
 /* ============================================================
    MABA SHELL
