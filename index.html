@@ -492,13 +492,13 @@ function fileToBase64(file){
     reader.readAsDataURL(file);
   });
 }
-async function uploadFileToDrive(file){
+async function uploadFileToDrive(file, folder){
   if(!sheetsReady()) throw new Error('URL Google Sheets/Apps Script belum diisi.');
   const base64 = await fileToBase64(file);
   const res = await fetch(window.__sheetsApiUrl, {
     method:'POST',
     headers:{'Content-Type':'text/plain;charset=utf-8'},
-    body: JSON.stringify({ action:'uploadFile', filename:file.name, mimeType:file.type||'application/octet-stream', base64 })
+    body: JSON.stringify({ action:'uploadFile', filename:file.name, mimeType:file.type||'application/octet-stream', base64, folder })
   });
   const data = await res.json();
   if(!data || !data.ok || !data.url) throw new Error((data && data.error) || 'Upload gagal');
@@ -2070,7 +2070,7 @@ function openTugasForm(jenis){
       if(file.size > 5*1024*1024){ toast('Ukuran file maksimal 5MB.','error'); return; }
       saveBtn.disabled = true; saveBtn.textContent = 'Mengunggah file...';
       try{
-        fileUrl = await uploadFileToDrive(file);
+        fileUrl = await uploadFileToDrive(file, 'Tugas Masta - Absensi Masta');
         fileName = file.name;
       }catch(e){
         console.error('upload tugas error', e);
