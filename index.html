@@ -371,6 +371,66 @@ tbody tr:hover{background:#FBFAF6;}
 .list-row.clickable:hover{background:#F7F6F1;}
 .detail-card{display:flex;gap:14px;padding:16px;border:1px solid var(--line);border-radius:14px;margin-bottom:10px;align-items:center;}
 .chk-row{display:flex;align-items:center;gap:8px;font-size:13.5px;}
+   /* ===== Perbaikan tampilan tabel di HP (tidak perlu landscape) ===== */
+.table-card{
+  overflow-x:auto;
+  -webkit-overflow-scrolling:touch;
+}
+table{
+  min-width:640px; /* jaga agar kolom tetap terbaca, munculkan scroll ke samping */
+}
+
+@media (max-width:640px){
+  .content{padding:12px;}
+  .page-head h2{font-size:18px;}
+  table{min-width:560px;font-size:12.5px;}
+  thead th{padding:9px 10px;font-size:10px;}
+  tbody td{padding:9px 10px;}
+  .table-toolbar{padding:12px;gap:8px;}
+  .table-toolbar input[type=search],
+  .table-toolbar select,
+  .table-toolbar input[type=date]{font-size:13px;padding:8px 10px;}
+  .stat-card{padding:14px;}
+  .stat-card .n{font-size:21px;}
+  .panel{padding:14px;}
+}
+   /* ===== Tabel jadi kartu di layar HP (tanpa geser samping) ===== */
+@media (max-width:640px){
+  .table-card{overflow-x:visible;}
+  table{min-width:0;width:100%;}
+  thead{display:none;}
+  tbody, tr, td{display:block; width:100%;}
+  tbody tr{
+    border:1px solid var(--line);
+    border-radius:12px;
+    margin:10px;
+    overflow:hidden;
+    background:#fff;
+  }
+  td{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+    padding:10px 12px;
+    border-bottom:1px solid #F0EFE9;
+    text-align:right;
+    white-space:normal;
+    word-break:break-word;
+  }
+  td:last-child{border-bottom:none;}
+  td::before{
+    content:attr(data-label);
+    font-weight:700;
+    color:var(--muted);
+    font-size:10.5px;
+    text-transform:uppercase;
+    letter-spacing:.04em;
+    text-align:left;
+    flex-shrink:0;
+  }
+  td .row-actions{margin-left:auto;}
+}
 </style>
 </head>
 <body>
@@ -2121,6 +2181,24 @@ async function init(){
   render();
   startAutoRefresh();
 }
+function cardifyTables(root){
+  if(!root) return;
+  root.querySelectorAll('table').forEach(table=>{
+    const headers = Array.from(table.querySelectorAll('thead th')).map(th=>th.textContent.trim());
+    if(!headers.length) return;
+    table.querySelectorAll('tbody tr').forEach(tr=>{
+      Array.from(tr.children).forEach((td,i)=>{
+        if(headers[i]) td.setAttribute('data-label', headers[i]);
+      });
+    });
+  });
+}
+const _cardifyObserver = new MutationObserver(()=>{
+  cardifyTables(document.getElementById('app'));
+  cardifyTables(document.getElementById('modal-box'));
+});
+_cardifyObserver.observe(document.getElementById('app'), {childList:true, subtree:true});
+_cardifyObserver.observe(document.getElementById('modal-box'), {childList:true, subtree:true});
 init();
 </script>
 </body>
