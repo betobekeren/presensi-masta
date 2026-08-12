@@ -464,17 +464,26 @@ function sheetsReady(){
 }
 async function dbGet(sheetName, def, silent){
   if(!sheetsReady()) return def;
-  try{
-    const url = `${window.__sheetsApiUrl}?sheet=${encodeURIComponent(sheetName)}&_ts=${Date.now()}`;
-    const res = await fetch(url, { cache:'no-store' });
-    const data = await res.json();
-    if(!Array.isArray(data)) return def;
-    return data;
-  }catch(e){
-    console.error('sheets get error', sheetName, e);
-    if(!silent) toast('Gagal memuat data dari server.','error');
-    return def;
+  const maxRetry = 3;
+  for(let attempt=1; attempt<=maxRetry; attempt++){
+    try{
+      const url = `${window.__sheetsApiUrl}?sheet=${encodeURIComponent(sheetName)}&_ts=${Date.now()}`;
+      const res = await fetch(url, { cache:'no-store' });
+      const text = await res.text();
+      const data = JSON.parse(text);
+      if(!Array.isArray(data)) return def;
+      return data;
+    }catch(e){
+      console.error('sheets get error', sheetName, 'attempt', attempt, e);
+      if(attempt < maxRetry){
+        await new Promise(r=>setTimeout(r, 400*attempt)); // tunggu sebelum coba lagi
+        continue;
+      }
+      if(!silent) toast('Gagal memuat data dari server.','error');
+      return def;
+    }
   }
+  return def;
 }
 async function dbSet(sheetName, val){
   if(!sheetsReady()) throw new Error('URL Google Sheets belum diisi.');
@@ -538,11 +547,17 @@ async function saveDB(part){
   await dbSet(map[part], DB[part]);
 }
 async function loadAllDB(silent){
-  const [users,prodi,kelompok,att,izin,sakit,tugas,backup] = await Promise.all([
-    dbGet(K.users, [], silent), dbGet(K.prodi, [], silent), dbGet(K.kelompok, [], silent), dbGet(K.att, [], silent),
-    dbGet(K.izin, [], silent), dbGet(K.sakit, [], silent), dbGet(K.tugas, [], silent), dbGet(K.backup, [], silent)
-  ]);
-  DB = {users,prodi,kelompok,att,izin,sakit,tugas,backup};
+  // load bergantian (sequential), bukan sekaligus, supaya tidak membebani Apps Script
+  const order = [
+    ['users', K.users], ['prodi', K.prodi], ['kelompok', K.kelompok],
+    ['att', K.att], ['izin', K.izin], ['sakit', K.sakit],
+    ['tugas', K.tugas], ['backup', K.backup]
+  ];
+  const result = {};
+  for(const [key, sheetName] of order){
+    result[key] = await dbGet(sheetName, [], silent);
+  }
+  DB = result;
 }
 /* ---------- sesi login (disimpan lokal per HP, bukan di server) ---------- */
 function sessionGet(){
