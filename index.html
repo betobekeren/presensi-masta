@@ -466,7 +466,8 @@ function sheetsReady(){
 async function dbGet(sheetName, def){
   if(!sheetsReady()) return def;
   try{
-    const res = await fetch(`${window.__sheetsApiUrl}?sheet=${encodeURIComponent(sheetName)}`);
+    const url = `${window.__sheetsApiUrl}?sheet=${encodeURIComponent(sheetName)}&_ts=${Date.now()}`;
+    const res = await fetch(url, { cache:'no-store' });
     const data = await res.json();
     if(!Array.isArray(data)) return def;
     return data;
