@@ -1716,7 +1716,7 @@ function openIzinSakitForm(isAdmin, defaultTab, onDone){
         <div class="field" id="izin-alasan-field"><label>Alasan</label><input name="alasan" placeholder="cth. Kepentingan keluarga"></div>
         <div class="field"><label>Keterangan</label><textarea name="keterangan" rows="3" placeholder="Keterangan tambahan"></textarea></div>
         <div class="field" id="sakit-lampiran-field" class="hidden">
-          <label>Lampiran Surat Dokter (opsional)</label>
+          <label for="lampiran-file-input">Lampiran Surat Dokter (opsional)</label>
           <input type="file" name="lampiranFile" id="lampiran-file-input" accept="image/*,.pdf" capture="environment">
           <div class="field-hint" id="lampiran-file-hint" style="margin-top:6px;">Boleh foto langsung dari kamera atau file PDF, maks 5MB.</div>
         </div>
@@ -2114,7 +2114,7 @@ function openTugasForm(jenis, existing){
           <div class="field-hint">Isi kalau tugasnya berupa link, misalnya video perkenalan yang diupload di IG.</div>
         </div>
         <div class="field">
-          <label>File Tugas (opsional)</label>
+          <label for="tugas-file-input">File Tugas (opsional)</label>
           <input type="file" name="tugasFile" id="tugas-file-input" accept="image/*,application/pdf,.doc,.docx,.ppt,.pptx">
           <div class="field-hint">${existing && existing.fileUrl ? `File saat ini: <a href="${esc(existing.fileUrl)}" target="_blank" rel="noopener">${esc(existing.fileName||'Lihat file')}</a>. Pilih file baru untuk menggantinya, atau biarkan kosong untuk tetap memakai file ini.` : 'Format bebas: screenshot, foto, atau PDF. Maks 5MB. Boleh dikosongkan kalau kirim link atau teks saja.'}</div>
         </div>
