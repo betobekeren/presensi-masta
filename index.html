@@ -478,6 +478,7 @@ async function dbSet(sheetName, val){
   try{
     const res = await fetch(window.__sheetsApiUrl, {
       method:'POST',
+      cache:'no-store',
       headers:{'Content-Type':'text/plain;charset=utf-8'},
       body: JSON.stringify({ sheet: sheetName, data: val })
     });
@@ -493,6 +494,7 @@ async function dbAppend(sheetName, record){
   try{
     const res = await fetch(window.__sheetsApiUrl, {
       method:'POST',
+      cache:'no-store',
       headers:{'Content-Type':'text/plain;charset=utf-8'},
       body: JSON.stringify({ action:'appendRow', sheet: sheetName, record })
     });
