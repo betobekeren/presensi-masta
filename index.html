@@ -2452,10 +2452,16 @@ function startAutoRefresh(){
    INIT
    ============================================================ */
 async function init(){
-  await loadAllDB();
-  await seedIfEmpty();
-  await tryRestoreSession();
-  render();
+  try{ await loadAllDB(); }
+  catch(e){ console.error('loadAllDB gagal', e); }
+
+  try{ await seedIfEmpty(); }
+  catch(e){ console.error('seedIfEmpty gagal', e); }
+
+  try{ await tryRestoreSession(); }
+  catch(e){ console.error('tryRestoreSession gagal', e); }
+
+  render();          // <-- sekarang SELALU dipanggil, apapun yang terjadi di atas
   startAutoRefresh();
 }
 function cardifyTables(root){
